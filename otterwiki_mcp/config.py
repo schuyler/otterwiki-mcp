@@ -8,6 +8,7 @@ class Config:
     def __init__(self):
         self.api_url = os.environ.get("OTTERWIKI_API_URL", "").rstrip("/")
         self.api_key = os.environ.get("OTTERWIKI_API_KEY", "")
+        self.mcp_base_url = os.environ.get("MCP_BASE_URL", "").rstrip("/")
         self.mcp_auth_token = os.environ.get("MCP_AUTH_TOKEN", "")
         self._mcp_port_raw = os.environ.get("MCP_PORT", "8090")
         self.mcp_port = 8090  # replaced by validate()
@@ -20,8 +21,8 @@ class Config:
         if not self.api_key:
             print("OTTERWIKI_API_KEY is required", file=sys.stderr)
             sys.exit(1)
-        if not self.mcp_auth_token:
-            print("MCP_AUTH_TOKEN is required", file=sys.stderr)
+        if not self.mcp_base_url:
+            print("MCP_BASE_URL is required", file=sys.stderr)
             sys.exit(1)
         try:
             self.mcp_port = int(self._mcp_port_raw)

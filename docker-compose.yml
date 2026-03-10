@@ -35,7 +35,8 @@ services:
     environment:
       OTTERWIKI_API_URL: "http://otterwiki:80"
       OTTERWIKI_API_KEY: "${OTTERWIKI_API_KEY}"
-      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN}"
+      MCP_BASE_URL: "${MCP_BASE_URL}"
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
       MCP_PORT: "8090"
     depends_on:
       - otterwiki

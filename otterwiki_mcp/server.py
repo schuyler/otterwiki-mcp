@@ -6,10 +6,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import StaticTokenVerifier
+from fastmcp.server.auth import MultiAuth, StaticTokenVerifier
+from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 
 from otterwiki_mcp.api_client import WikiAPIError, WikiClient
-from otterwiki_mcp.config import Config
+from otterwiki_mcp.config import get_config
 from otterwiki_mcp import formatters
 
 logger = logging.getLogger(__name__)
@@ -271,15 +272,20 @@ async def find_orphaned_notes() -> str:
 
 def main():
     global client
-    cfg = Config()
-    cfg.validate()
+    cfg = get_config()
     client = WikiClient(cfg.api_url, cfg.api_key)
     mcp._lifespan = _lifespan
-    mcp.auth = StaticTokenVerifier(
-        tokens={
-            cfg.mcp_auth_token: {"client_id": "claude", "scopes": []},
-        }
-    )
+
+    oauth_server = InMemoryOAuthProvider(base_url=cfg.mcp_base_url)
+    verifiers = []
+    if cfg.mcp_auth_token:
+        verifiers.append(
+            StaticTokenVerifier(
+                tokens={cfg.mcp_auth_token: {"client_id": "claude-code", "scopes": []}}
+            )
+        )
+    mcp.auth = MultiAuth(server=oauth_server, verifiers=verifiers)
+
     mcp.run(transport="streamable-http", host="0.0.0.0", port=cfg.mcp_port)
 
 

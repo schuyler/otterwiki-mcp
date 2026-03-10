@@ -38,12 +38,45 @@ All via environment variables:
 |----------|----------|---------|-------------|
 | `OTTERWIKI_API_URL` | yes | | Base URL of the Otterwiki instance |
 | `OTTERWIKI_API_KEY` | yes | | API key for authenticating with Otterwiki |
-| `MCP_AUTH_TOKEN` | yes | | Bearer token that MCP clients must present |
+| `MCP_BASE_URL` | yes | | Externally-reachable URL of this MCP server (e.g. `https://mcp.example.com`). Used for OAuth discovery endpoints. |
+| `MCP_AUTH_TOKEN` | no | | Optional bearer token for Claude Code access. If set, clients can authenticate with `Authorization: Bearer <token>` in addition to OAuth. |
 | `MCP_PORT` | no | `8090` | Port the MCP server listens on |
+
+## Authentication
+
+The server supports two authentication methods:
+
+- **OAuth 2.1** (primary) — Used by Claude.ai. The server acts as its own OAuth authorization server via FastMCP's `InMemoryOAuthProvider`, handling Dynamic Client Registration, PKCE, and token management. OAuth state is in-memory; a server restart requires re-authentication.
+- **Bearer token** (optional) — Used by Claude Code. Enabled when `MCP_AUTH_TOKEN` is set. Clients send `Authorization: Bearer <token>` in HTTP headers.
+
+### Connecting from Claude.ai
+
+1. In Claude.ai, go to Settings > Connectors > Add custom connector
+2. Enter the server URL (e.g. `https://mcp.example.com/mcp`)
+3. Leave Client ID and Client Secret blank — Dynamic Client Registration handles it
+4. Click Add
+
+### Connecting from Claude Code
+
+Add to your MCP server configuration with the bearer token in headers:
+
+```json
+{
+  "mcpServers": {
+    "otterwiki": {
+      "type": "streamable-http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN"
+      }
+    }
+  }
+}
+```
 
 ## Deployment
 
-The MCP server transmits bearer tokens in HTTP headers. In production, terminate TLS in front of it (nginx, Caddy, etc.) so tokens aren't sent in cleartext.
+Terminate TLS in front of the MCP server (nginx, Caddy, etc.) so tokens aren't sent in cleartext.
 
 ## Dependencies
 
