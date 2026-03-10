@@ -1,0 +1,45 @@
+services:
+  otterwiki:
+    build: ../otterwiki
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - wiki-data:/app-data
+      # Plugins auto-installed by entrypoint.sh from /plugins/*/
+      - ../otterwiki-api:/plugins/otterwiki-api
+      - ../otterwiki-semantic-search:/plugins/otterwiki-semantic-search
+    environment:
+      OTTERWIKI_API_KEY: "${OTTERWIKI_API_KEY}"
+      OTTERWIKI_API_AUTHOR_NAME: "${OTTERWIKI_API_AUTHOR_NAME:-Claude (MCP)}"
+      OTTERWIKI_API_AUTHOR_EMAIL: "${OTTERWIKI_API_AUTHOR_EMAIL:-claude-mcp@otterwiki.local}"
+      CHROMADB_HOST: "chromadb"
+      CHROMADB_PORT: "8000"
+    depends_on:
+      chromadb:
+        condition: service_started
+
+  chromadb:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    volumes:
+      - chroma-data:/chroma/chroma
+    expose:
+      - "8000"
+
+  mcp-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      OTTERWIKI_API_URL: "http://otterwiki:80"
+      OTTERWIKI_API_KEY: "${OTTERWIKI_API_KEY}"
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN}"
+      MCP_PORT: "8090"
+    depends_on:
+      - otterwiki
+
+volumes:
+  wiki-data:
+  chroma-data:
