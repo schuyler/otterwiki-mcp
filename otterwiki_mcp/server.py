@@ -234,6 +234,24 @@ async def get_history(path: str, limit: int = 10) -> str:
 
 
 @mcp.tool()
+async def rename_note(path: str, new_path: str, commit_message: str = "") -> str:
+    """Rename a wiki page and automatically update all backreferences (WikiLinks from other pages that point to this page). The rename and all link updates happen in a single atomic commit.
+
+    Args:
+        path: Current page path, e.g. "Actors/Iran"
+        new_path: New page path, e.g. "Actors/Iran (Islamic Republic)"
+        commit_message: Optional commit message.
+    """
+    try:
+        data = await client.rename_page(path, new_path, commit_message or None)
+        return formatters.format_rename_result(data)
+    except WikiAPIError as e:
+        return _handle_api_error(e)
+    except Exception as e:
+        return f"Could not reach the wiki API: {e}"
+
+
+@mcp.tool()
 async def delete_note(path: str, commit_message: str = "") -> str:
     """Delete a wiki page. Permanently deletes — content can only be recovered through git history. Confirm with the user before calling."""
     try:

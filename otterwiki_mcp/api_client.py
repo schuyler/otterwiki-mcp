@@ -127,6 +127,21 @@ class WikiClient:
             body["commit_message"] = f"[mcp] Delete: {page_path}"
         return await self._request("DELETE", f"/api/v1/pages/{page_path}", json=body)
 
+    async def rename_page(
+        self,
+        page_path: str,
+        new_path: str,
+        commit_message: str | None = None,
+    ) -> dict:
+        self._validate_path(page_path)
+        self._validate_path(new_path)
+        body: dict = {"new_path": new_path}
+        if commit_message:
+            body["commit_message"] = f"[mcp] {commit_message}"
+        return await self._request(
+            "POST", f"/api/v1/pages/{page_path}/rename", json=body
+        )
+
     async def get_history(self, page_path: str, limit: int | None = None) -> dict:
         self._validate_path(page_path)
         params = {}

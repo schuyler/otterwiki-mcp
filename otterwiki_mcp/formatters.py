@@ -158,6 +158,23 @@ def format_edit_result(data: dict) -> str:
     return f"Edited {data.get('path', '')} (revision: {rev})"
 
 
+def format_rename_result(data: dict) -> str:
+    """Format a page rename response for the rename_note tool."""
+    old = data.get("old_path", "")
+    new = data.get("new_path", "")
+    rev = data.get("revision", "")[:8]
+    updated = data.get("updated_pages", [])
+
+    lines = [f"Renamed {old} -> {new} (revision: {rev})"]
+    if updated:
+        lines.append(f"Updated {len(updated)} backreferences:")
+        for p in updated:
+            lines.append(f"  - {p}")
+    else:
+        lines.append("No backreferences needed updating.")
+    return "\n".join(lines)
+
+
 def format_delete_result(data: dict) -> str:
     """Format a page delete response for the delete_note tool."""
     return f"Deleted {data.get('path', '')}"

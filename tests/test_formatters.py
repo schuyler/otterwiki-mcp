@@ -7,6 +7,7 @@ from otterwiki_mcp.formatters import (
     format_semantic_results,
     format_recent_changes,
     format_write_result,
+    format_rename_result,
     format_delete_result,
     format_links,
     format_history,
@@ -164,6 +165,33 @@ def test_format_write_result_updated():
     }
     result = format_write_result(data)
     assert result == "Updated Test/Page (revision: abcdef12)"
+
+
+def test_format_rename_result_with_updates():
+    data = {
+        "old_path": "Actors/Iran",
+        "new_path": "Actors/Iran (Islamic Republic)",
+        "revision": "abcdef1234567890",
+        "updated_pages": ["Events/Day 10", "Trends/Strategy"],
+    }
+    result = format_rename_result(data)
+    assert "Renamed Actors/Iran -> Actors/Iran (Islamic Republic)" in result
+    assert "abcdef12" in result
+    assert "Updated 2 backreferences:" in result
+    assert "  - Events/Day 10" in result
+    assert "  - Trends/Strategy" in result
+
+
+def test_format_rename_result_no_updates():
+    data = {
+        "old_path": "Old/Page",
+        "new_path": "New/Page",
+        "revision": "deadbeef12345678",
+        "updated_pages": [],
+    }
+    result = format_rename_result(data)
+    assert "Renamed Old/Page -> New/Page" in result
+    assert "No backreferences needed updating." in result
 
 
 def test_format_delete_result():

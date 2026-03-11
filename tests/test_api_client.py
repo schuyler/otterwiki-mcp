@@ -230,6 +230,7 @@ METHODS_UNDER_TEST = [
     ("get_page", ("PLACEHOLDER",)),
     ("put_page", ("PLACEHOLDER", "content")),
     ("delete_page", ("PLACEHOLDER",)),
+    ("rename_page", ("PLACEHOLDER", "valid/path")),
     ("get_history", ("PLACEHOLDER",)),
     ("get_links", ("PLACEHOLDER",)),
 ]
@@ -270,3 +271,36 @@ async def test_path_empty_rejected(mock_api, wiki_client, method_name, args_temp
     """Empty paths must be rejected."""
     with pytest.raises(ValueError, match="must not be empty"):
         await getattr(wiki_client, method_name)(*_make_args(args_template, ""))
+
+
+# --- rename_page new_path validation ---
+
+@pytest.mark.asyncio
+async def test_rename_page_validates_new_path_traversal(mock_api, wiki_client):
+    with pytest.raises(ValueError, match="must not contain"):
+        await wiki_client.rename_page("valid/path", "../../evil")
+
+
+@pytest.mark.asyncio
+async def test_rename_page_validates_new_path_empty(mock_api, wiki_client):
+    with pytest.raises(ValueError, match="must not be empty"):
+        await wiki_client.rename_page("valid/path", "")
+
+
+@pytest.mark.asyncio
+async def test_rename_page_sends_mcp_prefix(mock_api, wiki_client):
+    route = mock_api.post("/api/v1/pages/Old/Page/rename").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "old_path": "Old/Page",
+                "new_path": "New/Page",
+                "revision": "abc123",
+                "updated_pages": [],
+            },
+        )
+    )
+    await wiki_client.rename_page("Old/Page", "New/Page", "Rename page")
+    req_body = route.calls[0].request.content
+    assert b"[mcp] Rename page" in req_body
+    assert b"New/Page" in req_body

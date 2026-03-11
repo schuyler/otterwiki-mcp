@@ -192,6 +192,46 @@ async def test_semantic_search(mock_api):
 
 
 @pytest.mark.asyncio
+async def test_rename_note_success(mock_api):
+    mock_api.post("/api/v1/pages/Actors/Iran/rename").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "old_path": "Actors/Iran",
+                "new_path": "Actors/Iran (Islamic Republic)",
+                "revision": "abc12345deadbeef",
+                "updated_pages": ["Events/Day 10"],
+            },
+        )
+    )
+    result = await server_mod.rename_note(
+        "Actors/Iran", "Actors/Iran (Islamic Republic)", "Rename with new name"
+    )
+    assert "Renamed Actors/Iran -> Actors/Iran (Islamic Republic)" in result
+    assert "abc12345" in result
+    assert "Updated 1 backreferences:" in result
+    assert "Events/Day 10" in result
+
+
+@pytest.mark.asyncio
+async def test_rename_note_not_found(mock_api):
+    mock_api.post("/api/v1/pages/Missing/Page/rename").mock(
+        return_value=httpx.Response(404, json={"error": "Page not found: Missing/Page"})
+    )
+    result = await server_mod.rename_note("Missing/Page", "New/Path")
+    assert "Page not found" in result
+
+
+@pytest.mark.asyncio
+async def test_rename_note_conflict(mock_api):
+    mock_api.post("/api/v1/pages/Old/Page/rename").mock(
+        return_value=httpx.Response(409, json={"error": "A page already exists at: New/Page"})
+    )
+    result = await server_mod.rename_note("Old/Page", "New/Page")
+    assert "Conflict" in result
+
+
+@pytest.mark.asyncio
 async def test_delete_note_success(mock_api):
     mock_api.delete("/api/v1/pages/Test/Old").mock(
         return_value=httpx.Response(
