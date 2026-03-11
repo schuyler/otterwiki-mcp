@@ -60,7 +60,7 @@ async def test_write_note_success(mock_api):
             },
         )
     )
-    result = await server_mod.write_note("Test/New", "# New\n\nContent.", "Create test")
+    result = await server_mod.write_note("Test/New", "# New\n\nContent.", commit_message="Create test")
     assert "Created Test/New" in result
     assert "def456ab" in result
 
