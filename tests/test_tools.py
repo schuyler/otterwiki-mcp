@@ -66,6 +66,61 @@ async def test_write_note_success(mock_api):
 
 
 @pytest.mark.asyncio
+async def test_edit_note_success(mock_api):
+    mock_api.patch("/api/v1/pages/Actors/Iran").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "name": "Iran",
+                "path": "Actors/Iran",
+                "revision": "newrev12345abcde",
+            },
+        )
+    )
+    result = await server_mod.edit_note(
+        "Actors/Iran", "oldrev99", "confidence: medium", "confidence: high", "Update confidence"
+    )
+    assert "Edited Actors/Iran" in result
+    assert "newrev12" in result
+
+
+@pytest.mark.asyncio
+async def test_edit_note_conflict(mock_api):
+    mock_api.patch("/api/v1/pages/Actors/Iran").mock(
+        return_value=httpx.Response(
+            409,
+            json={"error": "Revision mismatch", "current_revision": "abc123"},
+        )
+    )
+    result = await server_mod.edit_note(
+        "Actors/Iran", "stale_rev", "old text", "new text"
+    )
+    assert "Conflict" in result
+    assert "Read the page again" in result
+
+
+@pytest.mark.asyncio
+async def test_edit_note_not_found(mock_api):
+    mock_api.patch("/api/v1/pages/Missing/Page").mock(
+        return_value=httpx.Response(404, json={"error": "Page not found"})
+    )
+    result = await server_mod.edit_note("Missing/Page", "rev", "old", "new")
+    assert "Page not found" in result
+
+
+@pytest.mark.asyncio
+async def test_edit_note_ambiguous(mock_api):
+    mock_api.patch("/api/v1/pages/Test/Page").mock(
+        return_value=httpx.Response(
+            422,
+            json={"error": "old_string is ambiguous: found 3 occurrences"},
+        )
+    )
+    result = await server_mod.edit_note("Test/Page", "rev", "foo", "bar")
+    assert "ambiguous" in result
+
+
+@pytest.mark.asyncio
 async def test_list_notes_with_filters(mock_api):
     mock_api.get("/api/v1/pages").mock(
         return_value=httpx.Response(

@@ -99,6 +99,28 @@ async def write_note(
 
 
 @mcp.tool()
+async def edit_note(
+    path: str, revision: str, old_string: str, new_string: str, commit_message: str = ""
+) -> str:
+    """Edit a wiki page in place. Finds the single occurrence of old_string and replaces it with new_string. Requires the current revision SHA (from read_note) for optimistic locking — if the page was modified since you last read it, you'll get a conflict error and must re-read before retrying.
+
+    Args:
+        path: Page path, e.g. "Actors/Iran"
+        revision: Current revision SHA of the page (from read_note). Can be full or short (7+ chars).
+        old_string: Exact text to find (must appear exactly once in the page). Matches against full content including frontmatter.
+        new_string: Replacement text. Use empty string to delete old_string.
+        commit_message: Optional commit message.
+    """
+    try:
+        data = await client.patch_page(path, revision, old_string, new_string, commit_message or None)
+        return formatters.format_edit_result(data)
+    except WikiAPIError as e:
+        return _handle_api_error(e)
+    except Exception as e:
+        return f"Could not reach the wiki API: {e}"
+
+
+@mcp.tool()
 async def list_notes(
     prefix: str = "",
     category: str = "",

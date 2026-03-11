@@ -98,6 +98,24 @@ class WikiClient:
             pass
         return await self._request("PUT", f"/api/v1/pages/{page_path}", json=body)
 
+    async def patch_page(
+        self,
+        page_path: str,
+        revision: str,
+        old_string: str,
+        new_string: str,
+        commit_message: str | None = None,
+    ) -> dict:
+        self._validate_path(page_path)
+        body: dict = {
+            "revision": revision,
+            "old_string": old_string,
+            "new_string": new_string,
+        }
+        if commit_message:
+            body["commit_message"] = f"[mcp] {commit_message}"
+        return await self._request("PATCH", f"/api/v1/pages/{page_path}", json=body)
+
     async def delete_page(
         self, page_path: str, commit_message: str | None = None
     ) -> dict:

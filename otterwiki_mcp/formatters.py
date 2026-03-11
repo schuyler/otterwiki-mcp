@@ -152,6 +152,12 @@ def format_write_result(data: dict) -> str:
     return f"{action} {data.get('path', '')} (revision: {rev})"
 
 
+def format_edit_result(data: dict) -> str:
+    """Format a page edit response for the edit_note tool."""
+    rev = data.get("revision", "")[:8]
+    return f"Edited {data.get('path', '')} (revision: {rev})"
+
+
 def format_delete_result(data: dict) -> str:
     """Format a page delete response for the delete_note tool."""
     return f"Deleted {data.get('path', '')}"
