@@ -71,6 +71,25 @@ async def test_put_page_with_commit_message(mock_api, wiki_client):
 
 
 @pytest.mark.asyncio
+async def test_put_page_with_revision(mock_api, wiki_client):
+    route = mock_api.put("/api/v1/pages/Test/Page").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "name": "Page",
+                "path": "Test/Page",
+                "revision": "newrev789",
+                "created": False,
+            },
+        )
+    )
+    result = await wiki_client.put_page("Test/Page", "# Updated", revision="oldrev123")
+    assert result["created"] is False
+    req_body = route.calls[0].request.content
+    assert b"oldrev123" in req_body
+
+
+@pytest.mark.asyncio
 async def test_put_page_without_commit_message(mock_api, wiki_client):
     route = mock_api.put("/api/v1/pages/Test/Page").mock(
         return_value=httpx.Response(

@@ -66,6 +66,53 @@ async def test_write_note_success(mock_api):
 
 
 @pytest.mark.asyncio
+async def test_write_note_update_with_revision(mock_api):
+    route = mock_api.put("/api/v1/pages/Test/Existing").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "name": "Existing",
+                "path": "Test/Existing",
+                "revision": "newrev456",
+                "created": False,
+            },
+        )
+    )
+    result = await server_mod.write_note("Test/Existing", "# Updated\n\nNew content.", revision="oldrev123")
+    assert "Updated Test/Existing" in result
+    # Verify revision was sent in the request body
+    req_body = route.calls[0].request.content
+    assert b"oldrev123" in req_body
+
+
+@pytest.mark.asyncio
+async def test_write_note_update_conflict(mock_api):
+    mock_api.put("/api/v1/pages/Test/Conflict").mock(
+        return_value=httpx.Response(
+            409,
+            json={"error": "Revision mismatch", "current_revision": "abc123"},
+        )
+    )
+    result = await server_mod.write_note("Test/Conflict", "content", revision="stale_rev")
+    assert "Conflict" in result
+    assert "Revision mismatch" in result
+    assert "Read the page again" in result
+
+
+@pytest.mark.asyncio
+async def test_write_note_missing_revision_conflict(mock_api):
+    mock_api.put("/api/v1/pages/Test/Existing").mock(
+        return_value=httpx.Response(
+            409,
+            json={"error": "Revision required when updating an existing page."},
+        )
+    )
+    result = await server_mod.write_note("Test/Existing", "content")
+    assert "Conflict" in result
+    assert "Revision required" in result
+
+
+@pytest.mark.asyncio
 async def test_edit_note_success(mock_api):
     mock_api.patch("/api/v1/pages/Actors/Iran").mock(
         return_value=httpx.Response(
@@ -96,6 +143,7 @@ async def test_edit_note_conflict(mock_api):
         "Actors/Iran", "stale_rev", "old text", "new text"
     )
     assert "Conflict" in result
+    assert "Revision mismatch" in result
     assert "Read the page again" in result
 
 

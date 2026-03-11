@@ -34,6 +34,7 @@ def test_format_read_note_full():
     result = format_read_note(data)
     assert "# Iran Attrition Strategy" in result
     assert "Path: Trends/Iran Attrition Strategy" in result
+    assert "Revision: abc123" in result
     assert "Category: trend" in result
     assert "Tags: military, p2-interceptor-race" in result
     assert "Confidence: high" in result

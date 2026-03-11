@@ -88,14 +88,14 @@ class WikiClient:
         page_path: str,
         content: str,
         commit_message: str | None = None,
+        revision: str | None = None,
     ) -> dict:
         self._validate_path(page_path)
         body: dict = {"content": content}
         if commit_message:
             body["commit_message"] = f"[mcp] {commit_message}"
-        else:
-            # Let the API auto-generate with its own prefix
-            pass
+        if revision:
+            body["revision"] = revision
         return await self._request("PUT", f"/api/v1/pages/{page_path}", json=body)
 
     async def patch_page(

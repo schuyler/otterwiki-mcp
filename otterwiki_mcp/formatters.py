@@ -7,7 +7,10 @@ suitable for Claude.ai consumption. Formats match the PRD examples.
 
 def format_read_note(data: dict) -> str:
     """Format a page response for the read_note tool."""
+    rev = data.get("revision", "")
     lines = [f"# {data.get('name', '')}", f"Path: {data.get('path', '')}"]
+    if rev:
+        lines.append(f"Revision: {rev}")
 
     fm = data.get("frontmatter")
     if fm:

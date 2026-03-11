@@ -48,8 +48,8 @@ def _handle_api_error(e: WikiAPIError) -> str:
             return "Authentication failed. The API key may be misconfigured."
         case 409:
             return (
-                "Conflict: the page was modified since last read. "
-                "Read the page again to get the current version, then retry."
+                f"Conflict: {e.detail} "
+                "Read the page again to get the current revision, then retry."
             )
         case 422:
             return f"Invalid request: {e.detail}"
@@ -84,13 +84,20 @@ async def read_note(path: str, revision: str = "") -> str:
 
 @mcp.tool()
 async def write_note(
-    path: str, content: str, commit_message: str = ""
+    path: str, content: str, revision: str = "", commit_message: str = ""
 ) -> str:
-    """Create or update a wiki page. Content should be markdown with optional YAML frontmatter between --- delimiters. Recognized frontmatter fields: category (actor|variable|trend|proposition|event|reference|index), tags (list of strings), confidence (low|medium|high), last_updated (YYYY-MM-DD)."""
+    """Create or overwrite a wiki page. When updating an existing page, you must supply the revision SHA from read_note for optimistic locking. Omit revision to create a new page.
+
+    Args:
+        path: Page path, e.g. "Actors/Iran"
+        content: Full page content (markdown with optional YAML frontmatter between --- delimiters). Recognized frontmatter fields: category (actor|variable|trend|proposition|event|reference|index), tags (list of strings), confidence (low|medium|high), last_updated (YYYY-MM-DD).
+        revision: Current revision SHA of the page (from read_note). Required when updating an existing page. Omit when creating a new page.
+        commit_message: Optional commit message.
+    """
     if len(content) > MAX_CONTENT_SIZE:
         return f"Content too large ({len(content)} bytes). Maximum size is {MAX_CONTENT_SIZE} bytes."
     try:
-        data = await client.put_page(path, content, commit_message or None)
+        data = await client.put_page(path, content, commit_message or None, revision or None)
         return formatters.format_write_result(data)
     except WikiAPIError as e:
         return _handle_api_error(e)
