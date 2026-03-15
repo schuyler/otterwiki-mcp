@@ -7,9 +7,11 @@ restart.
 """
 
 import json
+import logging
 import secrets
 import sqlite3
 import time
+from urllib.parse import urlencode
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -27,6 +29,10 @@ from fastmcp.server.auth.auth import (
     OAuthProvider,
     RevocationOptions,
 )
+
+from otterwiki_mcp.consent import OAUTH_PARAM_NAMES, verify_approval_token
+
+logger = logging.getLogger(__name__)
 
 # Expiration defaults
 AUTH_CODE_EXPIRY_SECONDS = 10 * 60  # 10 minutes
@@ -76,6 +82,8 @@ class SQLiteOAuthProvider(OAuthProvider):
         db_path: str,
         *,
         base_url: str,
+        consent_url: str = "",
+        signing_key: bytes = b"",
         client_registration_options: ClientRegistrationOptions | None = None,
         revocation_options: RevocationOptions | None = None,
         required_scopes: list[str] | None = None,
@@ -87,6 +95,8 @@ class SQLiteOAuthProvider(OAuthProvider):
             required_scopes=required_scopes,
         )
         self._db_path = db_path
+        self._consent_url = consent_url
+        self._signing_key = signing_key
         self._ensure_schema()
 
     # ---- helpers ----
@@ -168,13 +178,92 @@ class SQLiteOAuthProvider(OAuthProvider):
                 error_description=f"Client '{client.client_id}' not registered.",
             )
 
-        code_value = f"authcode_{secrets.token_hex(20)}"
-        expires_at = time.time() + AUTH_CODE_EXPIRY_SECONDS
+        if not self._consent_url:
+            raise AuthorizeError(
+                error="server_error",
+                error_description="Consent URL not configured",
+            )
 
+        # Build consent redirect — the consent page will handle login
+        # and redirect back to /authorize/callback with an approval token.
         scopes_list = params.scopes if params.scopes is not None else []
         if client.scope:
             allowed = set(client.scope.split())
             scopes_list = [s for s in scopes_list if s in allowed]
+
+        consent_params: dict[str, str] = {
+            "client_id": client.client_id,
+            "redirect_uri": str(params.redirect_uri),
+            "code_challenge": params.code_challenge,
+            "code_challenge_method": "S256",
+            "state": params.state or "",
+            "scope": " ".join(scopes_list),
+            "response_type": "code",
+        }
+        if params.resource:
+            consent_params["resource"] = params.resource
+
+        return f"{self._consent_url}?{urlencode(consent_params)}"
+
+    async def complete_authorization(
+        self,
+        *,
+        approval_token: str,
+        client_id: str,
+        redirect_uri: str,
+        code_challenge: str,
+        state: str,
+        scope: str,
+        resource: str | None = None,
+    ) -> str:
+        """Verify an approval token and issue an authorization code.
+
+        Called by the /authorize/callback route after the user consents
+        on the auth service.
+
+        Returns:
+            Redirect URI with auth code and state for the OAuth client.
+
+        Raises:
+            AuthorizeError: If the token is invalid or the client is unknown.
+        """
+        if not self._signing_key:
+            raise AuthorizeError(
+                error="server_error",
+                error_description="Signing key not configured",
+            )
+
+        payload = verify_approval_token(approval_token, self._signing_key)
+        if payload is None:
+            raise AuthorizeError(
+                error="access_denied",
+                error_description="Invalid or expired approval token",
+            )
+
+        # Verify the token's client_id matches the request
+        if payload.get("client_id") != client_id:
+            logger.warning(
+                "Approval token client_id mismatch: token=%s request=%s",
+                payload.get("client_id"),
+                client_id,
+            )
+            raise AuthorizeError(
+                error="access_denied",
+                error_description="Approval token client_id mismatch",
+            )
+
+        # Verify client is registered
+        client = await self.get_client(client_id)
+        if client is None:
+            raise AuthorizeError(
+                error="unauthorized_client",
+                error_description=f"Client '{client_id}' not registered.",
+            )
+
+        # Issue auth code
+        code_value = f"authcode_{secrets.token_hex(20)}"
+        expires_at = time.time() + AUTH_CODE_EXPIRY_SECONDS
+        scopes_list = scope.split() if scope else []
 
         conn = self._connect()
         try:
@@ -185,22 +274,20 @@ class SQLiteOAuthProvider(OAuthProvider):
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     code_value,
-                    client.client_id,
-                    str(params.redirect_uri),
-                    1 if params.redirect_uri_provided_explicitly else 0,
-                    params.code_challenge,
+                    client_id,
+                    redirect_uri,
+                    1,
+                    code_challenge,
                     json.dumps(scopes_list),
                     expires_at,
-                    params.resource,
+                    resource,
                 ),
             )
             conn.commit()
         finally:
             conn.close()
 
-        return construct_redirect_uri(
-            str(params.redirect_uri), code=code_value, state=params.state
-        )
+        return construct_redirect_uri(redirect_uri, code=code_value, state=state)
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str

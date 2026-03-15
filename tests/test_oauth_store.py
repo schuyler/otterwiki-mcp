@@ -1,5 +1,8 @@
 """Tests for SQLiteOAuthProvider — persistent OAuth storage."""
 
+import hashlib
+import hmac
+import json
 import time
 
 import pytest
@@ -12,6 +15,7 @@ from mcp.server.auth.provider import (
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl
 
+from otterwiki_mcp.consent import derive_signing_key
 from otterwiki_mcp.oauth_store import (
     ACCESS_TOKEN_EXPIRY_SECONDS,
     AUTH_CODE_EXPIRY_SECONDS,
@@ -22,14 +26,19 @@ from otterwiki_mcp.oauth_store import (
 
 # --- Helpers ---
 
+SIGNING_KEY = derive_signing_key("test-pem-data-" + "x" * 50)
+CONSENT_URL = "https://robot.wtf/auth/oauth/consent"
+
 
 def _make_provider(tmp_path, **kwargs):
     db = str(tmp_path / "test_oauth.db")
-    return SQLiteOAuthProvider(
-        db,
+    defaults = dict(
         base_url="http://localhost:8090",
-        **kwargs,
+        consent_url=CONSENT_URL,
+        signing_key=SIGNING_KEY,
     )
+    defaults.update(kwargs)
+    return SQLiteOAuthProvider(db, **defaults)
 
 
 def _make_client(client_id="test-client") -> OAuthClientInformationFull:
@@ -50,6 +59,37 @@ def _make_auth_params(**overrides) -> AuthorizationParams:
     )
     defaults.update(overrides)
     return AuthorizationParams(**defaults)
+
+
+def _sign_approval_token(payload: dict, key: bytes = SIGNING_KEY) -> str:
+    """Create an HMAC-signed approval token (mirrors auth service)."""
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    sig = hmac.new(key, payload_json.encode(), hashlib.sha256).hexdigest()
+    return f"{payload_json}|{sig}"
+
+
+async def _get_auth_code(
+    provider: SQLiteOAuthProvider,
+    client_id: str = "test-client",
+    redirect_uri: str = "http://localhost/callback",
+    code_challenge: str = "challenge123",
+    state: str = "test-state",
+    scope: str = "",
+) -> str:
+    """Issue an auth code via complete_authorization, return the code string."""
+    token = _sign_approval_token({
+        "client_id": client_id,
+        "exp": int(time.time()) + 120,
+    })
+    redirect = await provider.complete_authorization(
+        approval_token=token,
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        code_challenge=code_challenge,
+        state=state,
+        scope=scope,
+    )
+    return redirect.split("code=")[1].split("&")[0]
 
 
 # --- Client registration ---
@@ -115,14 +155,12 @@ class TestClientRegistration:
 class TestAuthorizationFlow:
     @pytest.mark.asyncio
     async def test_full_flow(self, tmp_path):
-        """Register -> authorize -> load_code -> exchange -> load_access_token."""
+        """Register -> complete_authorization -> load_code -> exchange -> load_access_token."""
         provider = _make_provider(tmp_path)
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        assert "code=" in redirect
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
 
         auth_code = await provider.load_authorization_code(client, code)
         assert auth_code is not None
@@ -145,8 +183,7 @@ class TestAuthorizationFlow:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
 
         await provider.exchange_authorization_code(client, auth_code)
@@ -161,8 +198,7 @@ class TestAuthorizationFlow:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
 
         # Expire the code
         conn = provider._connect()
@@ -183,8 +219,7 @@ class TestAuthorizationFlow:
         await provider.register_client(client_a)
         await provider.register_client(client_b)
 
-        redirect = await provider.authorize(client_a, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider, client_id="client-a")
 
         assert await provider.load_authorization_code(client_b, code) is None
 
@@ -210,8 +245,7 @@ class TestTokenOperations:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
 
@@ -225,8 +259,7 @@ class TestTokenOperations:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
 
@@ -257,8 +290,7 @@ class TestRefreshTokens:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
 
@@ -280,8 +312,7 @@ class TestRefreshTokens:
         await provider.register_client(client_a)
         await provider.register_client(client_b)
 
-        redirect = await provider.authorize(client_a, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider, client_id="client-a")
         auth_code = await provider.load_authorization_code(client_a, code)
         token = await provider.exchange_authorization_code(client_a, auth_code)
 
@@ -293,8 +324,7 @@ class TestRefreshTokens:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
         refresh = await provider.load_refresh_token(client, token.refresh_token)
@@ -308,8 +338,7 @@ class TestRefreshTokens:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
 
@@ -335,8 +364,7 @@ class TestRevocation:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
 
@@ -353,8 +381,7 @@ class TestRevocation:
         client = _make_client()
         await provider.register_client(client)
 
-        redirect = await provider.authorize(client, _make_auth_params())
-        code = redirect.split("code=")[1].split("&")[0]
+        code = await _get_auth_code(provider)
         auth_code = await provider.load_authorization_code(client, code)
         token = await provider.exchange_authorization_code(client, auth_code)
 

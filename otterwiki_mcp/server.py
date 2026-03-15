@@ -7,10 +7,14 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import MultiAuth, StaticTokenVerifier
+from mcp.server.auth.provider import AuthorizeError
 from mcp.server.auth.settings import ClientRegistrationOptions
+from starlette.requests import Request
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from otterwiki_mcp.api_client import WikiAPIError, WikiClient
 from otterwiki_mcp.config import get_config
+from otterwiki_mcp.consent import derive_signing_key
 from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
 from otterwiki_mcp import formatters
 
@@ -34,6 +38,7 @@ mcp = FastMCP("Otterwiki Research Wiki")
 
 # Initialized in main(); tools reference via module-level variable.
 client: WikiClient
+oauth_provider: SQLiteOAuthProvider
 
 
 def _handle_api_error(e: WikiAPIError) -> str:
@@ -315,18 +320,90 @@ async def find_orphaned_notes() -> str:
         return f"Could not reach the wiki API: {e}"
 
 
+# --- Authorize callback ---
+
+
+@mcp.custom_route("/authorize/callback", methods=["GET"])
+async def authorize_callback(request: Request) -> Response:
+    """Handle redirect from consent page after user approval.
+
+    Verifies the approval token, issues an auth code, and redirects
+    the OAuth client (e.g. Claude.ai) back to its redirect_uri.
+    """
+    params = request.query_params
+    approval_token = params.get("approval_token", "")
+    if not approval_token:
+        return JSONResponse(
+            {"error": "missing_token", "error_description": "approval_token is required"},
+            status_code=400,
+        )
+
+    client_id = params.get("client_id", "")
+    redirect_uri = params.get("redirect_uri", "")
+    code_challenge = params.get("code_challenge", "")
+    state = params.get("state", "")
+    scope = params.get("scope", "")
+    resource = params.get("resource") or None
+
+    if not client_id or not redirect_uri or not code_challenge:
+        return JSONResponse(
+            {
+                "error": "invalid_request",
+                "error_description": "client_id, redirect_uri, and code_challenge are required",
+            },
+            status_code=400,
+        )
+
+    try:
+        redirect_url = await oauth_provider.complete_authorization(
+            approval_token=approval_token,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            state=state,
+            scope=scope,
+            resource=resource,
+        )
+    except AuthorizeError as e:
+        logger.warning("Authorization callback failed: %s", e.error_description)
+        return JSONResponse(
+            {"error": e.error, "error_description": e.error_description},
+            status_code=403,
+        )
+
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
 # --- Entry point ---
 
 
+def _load_signing_key(path: str) -> bytes:
+    """Read the PEM file and derive the HMAC signing key."""
+    try:
+        with open(path) as f:
+            pem_data = f.read()
+        return derive_signing_key(pem_data)
+    except FileNotFoundError:
+        logger.warning("Signing key not found at %s — consent flow will fail", path)
+        return b""
+    except Exception:
+        logger.exception("Failed to load signing key from %s", path)
+        return b""
+
+
 def main():
-    global client
+    global client, oauth_provider
     cfg = get_config()
     client = WikiClient(cfg.api_url, cfg.api_key)
     mcp._lifespan = _lifespan
 
-    oauth_server = SQLiteOAuthProvider(
+    signing_key = _load_signing_key(cfg.signing_key_path)
+
+    oauth_provider = SQLiteOAuthProvider(
         cfg.mcp_oauth_db,
         base_url=cfg.mcp_base_url,
+        consent_url=cfg.consent_url,
+        signing_key=signing_key,
         client_registration_options=ClientRegistrationOptions(enabled=True),
     )
     verifiers = []
@@ -336,7 +413,7 @@ def main():
                 tokens={cfg.mcp_auth_token: {"client_id": "claude-code", "scopes": []}}
             )
         )
-    mcp.auth = MultiAuth(server=oauth_server, verifiers=verifiers)
+    mcp.auth = MultiAuth(server=oauth_provider, verifiers=verifiers)
 
     mcp.run(transport="streamable-http", host="0.0.0.0", port=cfg.mcp_port)
 

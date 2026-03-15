@@ -13,6 +13,12 @@ class Config:
         self._mcp_port_raw = os.environ.get("MCP_PORT", "8090")
         self.mcp_port = 8090  # replaced by validate()
         self.mcp_oauth_db = os.environ.get("MCP_OAUTH_DB", "mcp_oauth.db")
+        self.consent_url = os.environ.get(
+            "CONSENT_URL", "https://robot.wtf/auth/oauth/consent"
+        ).rstrip("/")
+        self.signing_key_path = os.environ.get(
+            "SIGNING_KEY_PATH", "/srv/data/signing_key.pem"
+        )
 
     def validate(self):
         """Check required vars. Call at server startup, not import time."""
