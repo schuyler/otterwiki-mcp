@@ -1,6 +1,12 @@
 """Async HTTP client wrapping the Otterwiki REST API."""
 
+from contextvars import ContextVar
+
 import httpx
+
+# When set, WikiClient includes this as the Host header on all API requests.
+# This allows the upstream TenantResolver to route to the correct wiki.
+current_host_header: ContextVar[str | None] = ContextVar("current_host_header", default=None)
 
 
 class WikiAPIError(Exception):
@@ -37,6 +43,11 @@ class WikiClient:
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
         """Make an HTTP request; return JSON on success, raise WikiAPIError on failure."""
+        host = current_host_header.get()
+        if host:
+            headers = dict(kwargs.pop("headers", None) or {})
+            headers["Host"] = host
+            kwargs["headers"] = headers
         resp = await self._client.request(method, path, **kwargs)
         if resp.status_code >= 400:
             detail = ""

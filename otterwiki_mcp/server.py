@@ -12,7 +12,9 @@ from mcp.server.auth.settings import ClientRegistrationOptions
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
-from otterwiki_mcp.api_client import WikiAPIError, WikiClient
+from fastmcp.server.dependencies import get_http_request
+
+from otterwiki_mcp.api_client import WikiAPIError, WikiClient, current_host_header
 from otterwiki_mcp.config import get_config
 from otterwiki_mcp.consent import derive_signing_key
 from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
@@ -39,6 +41,34 @@ mcp = FastMCP("Otterwiki Research Wiki")
 # Initialized in main(); tools reference via module-level variable.
 client: WikiClient
 oauth_provider: SQLiteOAuthProvider
+platform_domain: str = "robot.wtf"
+
+
+def _set_host_from_request() -> None:
+    """Extract the wiki slug from the incoming HTTP Host header and set current_host_header.
+
+    The incoming Host looks like ``{slug}.mcp.robot.wtf`` (via Caddy). We
+    extract ``{slug}`` and construct ``{slug}.{platform_domain}`` for the
+    upstream API call so that the TenantResolver routes to the right wiki.
+    """
+    try:
+        request = get_http_request()
+    except RuntimeError:
+        return  # No HTTP request context (e.g. stdio transport) — nothing to do
+    host = request.headers.get("host", "")
+    if not host:
+        return
+    # Strip port if present
+    hostname = host.split(":")[0]
+    # Extract slug: everything before the first dot that isn't the platform domain itself
+    # e.g. "dev.mcp.robot.wtf" → slug="dev", or "dev.robot.wtf" → slug="dev"
+    parts = hostname.split(".")
+    if len(parts) < 3:
+        return  # No subdomain — can't determine wiki slug
+    slug = parts[0]
+    if not slug:
+        return
+    current_host_header.set(f"{slug}.{platform_domain}")
 
 
 def _handle_api_error(e: WikiAPIError) -> str:
@@ -78,6 +108,7 @@ async def read_note(path: str, revision: str = "") -> str:
         path: Page path, e.g. "Actors/Iran"
         revision: Optional git revision SHA to read a historical version. Use get_history to find available revision SHAs.
     """
+    _set_host_from_request()
     try:
         data = await client.get_page(path, revision=revision or None)
         return formatters.format_read_note(data)
@@ -99,6 +130,7 @@ async def write_note(
         revision: Current revision SHA of the page (from read_note). Required when updating an existing page. Omit when creating a new page.
         commit_message: Optional commit message.
     """
+    _set_host_from_request()
     if len(content) > MAX_CONTENT_SIZE:
         return f"Content too large ({len(content)} bytes). Maximum size is {MAX_CONTENT_SIZE} bytes."
     try:
@@ -123,6 +155,7 @@ async def edit_note(
         new_string: Replacement text. Use empty string to delete old_string.
         commit_message: Optional commit message.
     """
+    _set_host_from_request()
     try:
         data = await client.patch_page(path, revision, old_string, new_string, commit_message or None)
         return formatters.format_edit_result(data)
@@ -147,6 +180,7 @@ async def list_notes(
         tag: Filter by frontmatter tag
         updated_since: ISO 8601 date, e.g. "2026-03-08"
     """
+    _set_host_from_request()
     try:
         data = await client.list_pages(
             prefix=prefix, category=category, tag=tag, updated_since=updated_since
@@ -171,6 +205,7 @@ async def list_notes(
 @mcp.tool()
 async def search_notes(query: str) -> str:
     """Full-text keyword search across all wiki pages."""
+    _set_host_from_request()
     try:
         data = await client.search(query)
         return formatters.format_search_results(data)
@@ -188,6 +223,7 @@ async def semantic_search(query: str, n: int = 5) -> str:
         query: Natural language query describing what you're looking for
         n: Number of results to return (1-50, default 5)
     """
+    _set_host_from_request()
     n = max(1, min(n, 50))
     try:
         data = await client.semantic_search(query, n=n)
@@ -201,6 +237,7 @@ async def semantic_search(query: str, n: int = 5) -> str:
 @mcp.tool()
 async def get_links(path: str) -> str:
     """Get incoming and outgoing WikiLinks for a page."""
+    _set_host_from_request()
     try:
         data = await client.get_links(path)
         return formatters.format_links(data)
@@ -217,6 +254,7 @@ async def get_recent_changes(limit: int = 20) -> str:
     Args:
         limit: Maximum number of entries to return (default 20)
     """
+    _set_host_from_request()
     limit = max(1, min(limit, 200))
     try:
         data = await client.get_changelog(limit=limit)
@@ -235,6 +273,7 @@ async def get_history(path: str, limit: int = 10) -> str:
         path: Page path, e.g. "Actors/Iran"
         limit: Maximum number of revisions to return (default 10)
     """
+    _set_host_from_request()
     limit = max(1, min(limit, 200))
     try:
         data = await client.get_history(path, limit=limit)
@@ -254,6 +293,7 @@ async def rename_note(path: str, new_path: str, commit_message: str = "") -> str
         new_path: New page path, e.g. "Actors/Iran (Islamic Republic)"
         commit_message: Optional commit message.
     """
+    _set_host_from_request()
     try:
         data = await client.rename_page(path, new_path, commit_message or None)
         return formatters.format_rename_result(data)
@@ -266,6 +306,7 @@ async def rename_note(path: str, new_path: str, commit_message: str = "") -> str
 @mcp.tool()
 async def delete_note(path: str, commit_message: str = "") -> str:
     """Delete a wiki page. Permanently deletes — content can only be recovered through git history. Confirm with the user before calling."""
+    _set_host_from_request()
     try:
         data = await client.delete_page(path, commit_message or None)
         return formatters.format_delete_result(data)
@@ -278,6 +319,7 @@ async def delete_note(path: str, commit_message: str = "") -> str:
 @mcp.tool()
 async def find_orphaned_notes() -> str:
     """Find wiki pages that are not linked from any index page. Orphaned pages may be missing from the wiki's navigation structure."""
+    _set_host_from_request()
     try:
         # Get all pages
         all_data = await client.list_pages()
@@ -392,9 +434,10 @@ def _load_signing_key(path: str) -> bytes:
 
 
 def main():
-    global client, oauth_provider
+    global client, oauth_provider, platform_domain
     cfg = get_config()
     client = WikiClient(cfg.api_url, cfg.api_key)
+    platform_domain = cfg.platform_domain
     mcp._lifespan = _lifespan
 
     signing_key = _load_signing_key(cfg.signing_key_path)

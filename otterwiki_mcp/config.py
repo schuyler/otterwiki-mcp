@@ -19,6 +19,7 @@ class Config:
         self.signing_key_path = os.environ.get(
             "SIGNING_KEY_PATH", "/srv/data/signing_key.pem"
         )
+        self.platform_domain = os.environ.get("PLATFORM_DOMAIN", "robot.wtf")
 
     def validate(self):
         """Check required vars. Call at server startup, not import time."""
