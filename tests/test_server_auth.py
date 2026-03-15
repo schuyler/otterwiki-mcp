@@ -5,9 +5,9 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from fastmcp.server.auth import MultiAuth, StaticTokenVerifier
-from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 
 import otterwiki_mcp.server as server_mod
+from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
 
 
 # --- Minimal valid env for main() ---
@@ -19,7 +19,7 @@ VALID_ENV = {
 }
 
 
-def _run_main(monkeypatch, extra_env=None):
+def _run_main(monkeypatch, extra_env=None, tmp_path=None):
     """Set env, patch mcp.run to prevent actually starting, then call main().
 
     Returns the auth object assigned to mcp.auth.
@@ -32,6 +32,11 @@ def _run_main(monkeypatch, extra_env=None):
     # Ensure MCP_AUTH_TOKEN is absent unless explicitly provided
     if not extra_env or "MCP_AUTH_TOKEN" not in extra_env:
         monkeypatch.delenv("MCP_AUTH_TOKEN", raising=False)
+    # Use a temp DB so tests don't leave mcp_oauth.db in the working dir
+    if tmp_path is not None:
+        monkeypatch.setenv("MCP_OAUTH_DB", str(tmp_path / "test_oauth.db"))
+    else:
+        monkeypatch.setenv("MCP_OAUTH_DB", ":memory:")
 
     with patch.object(server_mod.mcp, "run"):
         server_mod.main()
@@ -43,19 +48,19 @@ class TestAuthSetup:
     """main() constructs MultiAuth correctly based on env."""
 
     def test_multiauth_without_token(self, monkeypatch):
-        """No MCP_AUTH_TOKEN -> MultiAuth with InMemoryOAuthProvider, no verifiers."""
+        """No MCP_AUTH_TOKEN -> MultiAuth with SQLiteOAuthProvider, no verifiers."""
         auth = _run_main(monkeypatch)
 
         assert isinstance(auth, MultiAuth)
-        assert isinstance(auth.server, InMemoryOAuthProvider)
+        assert isinstance(auth.server, SQLiteOAuthProvider)
         assert auth.verifiers == []
 
     def test_multiauth_with_token(self, monkeypatch):
-        """MCP_AUTH_TOKEN set -> MultiAuth with InMemoryOAuthProvider + StaticTokenVerifier."""
+        """MCP_AUTH_TOKEN set -> MultiAuth with SQLiteOAuthProvider + StaticTokenVerifier."""
         auth = _run_main(monkeypatch, extra_env={"MCP_AUTH_TOKEN": "my-secret-token"})
 
         assert isinstance(auth, MultiAuth)
-        assert isinstance(auth.server, InMemoryOAuthProvider)
+        assert isinstance(auth.server, SQLiteOAuthProvider)
         assert len(auth.verifiers) == 1
         assert isinstance(auth.verifiers[0], StaticTokenVerifier)
 
@@ -70,9 +75,9 @@ class TestAuthSetup:
         assert verifier.tokens[token]["scopes"] == []
 
     def test_oauth_provider_base_url(self, monkeypatch):
-        """InMemoryOAuthProvider receives MCP_BASE_URL."""
+        """SQLiteOAuthProvider receives MCP_BASE_URL."""
         auth = _run_main(monkeypatch)
-        # InMemoryOAuthProvider stores base_url as AnyHttpUrl
+        # SQLiteOAuthProvider stores base_url as AnyHttpUrl
         assert str(auth.server.base_url) == "http://localhost:8090/"
 
     def test_empty_token_treated_as_absent(self, monkeypatch):

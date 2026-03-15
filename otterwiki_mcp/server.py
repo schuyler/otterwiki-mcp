@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import MultiAuth, StaticTokenVerifier
-from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from mcp.server.auth.settings import ClientRegistrationOptions
 
 from otterwiki_mcp.api_client import WikiAPIError, WikiClient
 from otterwiki_mcp.config import get_config
+from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
 from otterwiki_mcp import formatters
 
 logger = logging.getLogger(__name__)
@@ -324,7 +324,8 @@ def main():
     client = WikiClient(cfg.api_url, cfg.api_key)
     mcp._lifespan = _lifespan
 
-    oauth_server = InMemoryOAuthProvider(
+    oauth_server = SQLiteOAuthProvider(
+        cfg.mcp_oauth_db,
         base_url=cfg.mcp_base_url,
         client_registration_options=ClientRegistrationOptions(enabled=True),
     )

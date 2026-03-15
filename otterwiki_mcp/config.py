@@ -12,6 +12,7 @@ class Config:
         self.mcp_auth_token = os.environ.get("MCP_AUTH_TOKEN", "")
         self._mcp_port_raw = os.environ.get("MCP_PORT", "8090")
         self.mcp_port = 8090  # replaced by validate()
+        self.mcp_oauth_db = os.environ.get("MCP_OAUTH_DB", "mcp_oauth.db")
 
     def validate(self):
         """Check required vars. Call at server startup, not import time."""
