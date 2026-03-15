@@ -415,7 +415,7 @@ def main():
         )
     mcp.auth = MultiAuth(server=oauth_provider, verifiers=verifiers)
 
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=cfg.mcp_port)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=cfg.mcp_port, stateless_http=True)
 
 
 if __name__ == "__main__":
