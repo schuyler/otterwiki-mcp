@@ -270,6 +270,19 @@ class SQLiteOAuthProvider(OAuthProvider):
                 error_description="Approval token client_id mismatch",
             )
 
+        # Verify the token's wiki_slug matches this MCP server's wiki
+        token_slug = payload.get("wiki_slug", "")
+        if self._wiki_slug and token_slug != self._wiki_slug:
+            logger.warning(
+                "Approval token wiki_slug mismatch: token=%s server=%s",
+                token_slug,
+                self._wiki_slug,
+            )
+            raise AuthorizeError(
+                error="access_denied",
+                error_description="Approval token wiki_slug mismatch",
+            )
+
         # Verify client is registered
         client = await self.get_client(client_id)
         if client is None:

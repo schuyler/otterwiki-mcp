@@ -189,6 +189,7 @@ class TestCompleteAuthorization:
             "client_id": "test-client",
             "exp": int(time.time()) + 120,
             "type": "approval",
+            "wiki_slug": "dev",
         })
 
         redirect = await provider.complete_authorization(
@@ -214,6 +215,7 @@ class TestCompleteAuthorization:
         token = _sign_approval_token({
             "client_id": "test-client",
             "exp": int(time.time()) + 120,
+            "wiki_slug": "dev",
         })
 
         redirect = await provider.complete_authorization(
@@ -306,6 +308,7 @@ class TestCompleteAuthorization:
         token = _sign_approval_token({
             "client_id": "ghost",
             "exp": int(time.time()) + 120,
+            "wiki_slug": "dev",
         })
 
         with pytest.raises(AuthorizeError) as exc_info:
@@ -351,6 +354,7 @@ class TestCompleteAuthorization:
         token = _sign_approval_token({
             "client_id": "test-client",
             "exp": int(time.time()) + 120,
+            "wiki_slug": "dev",
         })
 
         # Step 3: complete authorization

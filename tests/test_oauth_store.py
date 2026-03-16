@@ -80,6 +80,7 @@ async def _get_auth_code(
     token = _sign_approval_token({
         "client_id": client_id,
         "exp": int(time.time()) + 120,
+        "wiki_slug": "dev",
     })
     redirect = await provider.complete_authorization(
         approval_token=token,
