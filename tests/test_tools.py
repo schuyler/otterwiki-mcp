@@ -240,6 +240,23 @@ async def test_semantic_search(mock_api):
 
 
 @pytest.mark.asyncio
+async def test_semantic_search_passes_max_chunks_per_page(mock_api):
+    route = mock_api.get("/api/v1/semantic-search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "query": "air defense",
+                "results": [],
+                "total": 0,
+            },
+        )
+    )
+    await server_mod.semantic_search("air defense", n=3, max_chunks_per_page=1)
+    req_url = str(route.calls[0].request.url)
+    assert "max_chunks_per_page=1" in req_url
+
+
+@pytest.mark.asyncio
 async def test_rename_note_success(mock_api):
     mock_api.post("/api/v1/pages/Actors/Iran/rename").mock(
         return_value=httpx.Response(
@@ -555,3 +572,123 @@ async def test_transport_error_returns_string(mock_api):
     result = await server_mod.read_note("Any")
     assert isinstance(result, str)
     assert "Could not reach the wiki API" in result
+
+
+_SECTIONED_PAGE = {
+    "name": "History",
+    "path": "Topics/History",
+    "content": (
+        "# History\n\nIntro.\n\n"
+        "## Background\n\nBackground content.\n\n"
+        "## Other\n\nOther content.\n"
+    ),
+    "frontmatter": None,
+    "links_to": [],
+    "linked_from": [],
+    "revision": "abc123",
+    "last_commit": None,
+}
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_found(mock_api):
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=_SECTIONED_PAGE)
+    )
+    result = await server_mod.read_note("Topics/History", section="Background")
+    assert "Background content." in result
+    assert "## Other" not in result
+    assert "Section: History > Background" in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_not_found(mock_api):
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=_SECTIONED_PAGE)
+    )
+    result = await server_mod.read_note("Topics/History", section="Nonexistent")
+    assert "Section not found" in result
+    assert "Background" in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_empty_returns_full(mock_api):
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=_SECTIONED_PAGE)
+    )
+    result = await server_mod.read_note("Topics/History", section="")
+    assert "Background content." in result
+    assert "Other content." in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_no_headings(mock_api):
+    page = dict(_SECTIONED_PAGE, content="Just plain text without any headings.")
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    result = await server_mod.read_note("Topics/History", section="Anything")
+    assert "no sections" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_ambiguous(mock_api):
+    page = dict(
+        _SECTIONED_PAGE,
+        content=(
+            "# Part One\n\n## Summary\n\nFirst summary.\n\n"
+            "# Part Two\n\n## Summary\n\nSecond summary.\n"
+        ),
+    )
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    result = await server_mod.read_note("Topics/History", section="Summary")
+    assert "Section not found" in result
+    assert "Part One > Summary" in result
+    assert "Part Two > Summary" in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_clears_links(mock_api):
+    """When a section is extracted, links_to and linked_from should be absent."""
+    page = dict(
+        _SECTIONED_PAGE,
+        links_to=["Other/Page"],
+        linked_from=["Index/Main"],
+    )
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    result = await server_mod.read_note("Topics/History", section="Background")
+    assert "Background content." in result
+    assert "Other/Page" not in result
+    assert "Index/Main" not in result
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_max_chunks_clamped(mock_api):
+    """max_chunks_per_page above 10 should be clamped to 10."""
+    route = mock_api.get("/api/v1/semantic-search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"query": "test", "results": [], "total": 0},
+        )
+    )
+    await server_mod.semantic_search("test", n=5, max_chunks_per_page=99)
+    req_url = str(route.calls[0].request.url)
+    assert "max_chunks_per_page=10" in req_url
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_max_chunks_clamped_min(mock_api):
+    """max_chunks_per_page below 1 should be clamped to 1."""
+    route = mock_api.get("/api/v1/semantic-search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"query": "test", "results": [], "total": 0},
+        )
+    )
+    await server_mod.semantic_search("test", n=5, max_chunks_per_page=0)
+    req_url = str(route.calls[0].request.url)
+    assert "max_chunks_per_page=1" in req_url

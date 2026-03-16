@@ -12,6 +12,10 @@ def format_read_note(data: dict) -> str:
     if rev:
         lines.append(f"Revision: {rev}")
 
+    section = data.get("_section")
+    if section:
+        lines.append(f"Section: {section}")
+
     fm = data.get("frontmatter")
     if fm:
         header_parts = []
@@ -120,10 +124,24 @@ def format_semantic_results(data: dict) -> str:
     lines = [header, ""]
     for i, r in enumerate(results, 1):
         distance = r.get("distance", 0)
-        lines.append(f"{i}. {r.get('path', '')} (distance: {distance:.2f})")
-        snippet = r.get("snippet", "")
-        if snippet:
-            lines.append(f"   {snippet}")
+        chunk_index = r.get("chunk_index")
+        total_chunks = r.get("total_chunks")
+        page_word_count = r.get("page_word_count")
+
+        title = f"{i}. {r.get('path', '')} (distance: {distance:.2f})"
+        if chunk_index is not None and total_chunks is not None:
+            title += f" [{chunk_index + 1}/{total_chunks}]"
+        if page_word_count is not None:
+            title += f" \u2014 {page_word_count} words"
+        lines.append(title)
+
+        section_path = r.get("section_path")
+        if section_path:
+            lines.append(f"   Section: {section_path}")
+
+        body = r.get("text") or r.get("snippet", "")
+        if body:
+            lines.append(f"   {body}")
         lines.append("")
 
     return "\n".join(lines).rstrip()
