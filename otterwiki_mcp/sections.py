@@ -52,7 +52,7 @@ def _parse_headings(content: str) -> list[_Heading]:
             continue
 
         level = len(m.group(1))
-        title = m.group(2).strip().rstrip('#').strip()
+        title = re.sub(r'\s+#+\s*$', '', m.group(2).strip())
 
         # Pop stack entries at same or deeper level
         while stack and stack[-1][0] >= level:

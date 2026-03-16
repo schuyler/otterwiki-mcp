@@ -205,3 +205,11 @@ class TestClosedHeadings:
         assert errors == []
         assert "Some content here." in text
         assert matched_path == "Title"
+
+    def test_heading_title_ending_in_hash_preserved(self):
+        """Heading '## C# Programming' should produce title 'C# Programming', not 'C Programming'."""
+        content = "## C# Programming\n\nSome C# content.\n"
+        assert list_sections(content) == ["C# Programming"]
+        text, errors, matched_path = extract_section(content, "C# Programming")
+        assert errors == []
+        assert matched_path == "C# Programming"
