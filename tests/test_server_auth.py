@@ -131,7 +131,7 @@ class TestMainSideEffects:
         with patch.object(server_mod.mcp, "run") as mock_run:
             server_mod.main()
             mock_run.assert_called_once_with(
-                transport="streamable-http", host="0.0.0.0", port=9999
+                transport="streamable-http", host="0.0.0.0", port=9999, stateless_http=True
             )
 
     def test_lifespan_set(self, monkeypatch):
