@@ -39,10 +39,10 @@ def derive_signing_key(private_key_material: str) -> bytes:
     of the same key material.
 
     Args:
-        private_key_material: First 64 chars of the PEM private key.
+        private_key_material: Full PEM private key string.
     """
     return hashlib.sha256(
-        f"consent:{private_key_material[:64]}".encode()
+        f"consent:{private_key_material}".encode()
     ).digest()
 
 

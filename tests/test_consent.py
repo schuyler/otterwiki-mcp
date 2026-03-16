@@ -27,10 +27,20 @@ class TestDeriveSigningKey:
         material = "-----BEGIN RSA PRIVATE KEY-----\nMIIE..."
         assert derive_signing_key(material) == derive_signing_key(material)
 
-    def test_uses_first_64_chars(self):
-        a = "A" * 64 + "B" * 100
-        b = "A" * 64 + "C" * 100
-        assert derive_signing_key(a) == derive_signing_key(b)
+    def test_different_keys_produce_different_signing_keys(self):
+        # Keys share identical first 64 chars (the PEM header) but differ in body.
+        # The old [:64] slice would produce the same HMAC key for both.
+        header = "-----BEGIN RSA PRIVATE KEY-----\n"  # 32 chars
+        padding = "X" * (64 - len(header))             # pad to exactly 64 chars
+        key_a = header + padding + "AAAA" + "A" * 100
+        key_b = header + padding + "BBBB" + "B" * 100
+        assert derive_signing_key(key_a) != derive_signing_key(key_b)
+
+    def test_short_key_still_works(self):
+        short = "short"
+        result = derive_signing_key(short)
+        assert isinstance(result, bytes)
+        assert len(result) == 32
 
     def test_different_material_different_key(self):
         assert derive_signing_key("alpha" * 20) != derive_signing_key("bravo" * 20)
@@ -38,7 +48,7 @@ class TestDeriveSigningKey:
     def test_domain_separated(self):
         """Key derivation includes a 'consent:' prefix for domain separation."""
         material = "test_material_" + "x" * 50
-        raw_hash = hashlib.sha256(material[:64].encode()).digest()
+        raw_hash = hashlib.sha256(material.encode()).digest()
         consent_key = derive_signing_key(material)
         # Must differ from raw hash (because of the "consent:" prefix)
         assert consent_key != raw_hash
