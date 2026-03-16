@@ -11,7 +11,7 @@ import logging
 import secrets
 import sqlite3
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -97,6 +97,9 @@ class SQLiteOAuthProvider(OAuthProvider):
         self._db_path = db_path
         self._consent_url = consent_url
         self._signing_key = signing_key
+        parsed = urlparse(base_url)
+        host_parts = parsed.hostname.split(".") if parsed.hostname else []
+        self._wiki_slug = host_parts[0] if len(host_parts) >= 3 else ""
         self._ensure_schema()
 
     # ---- helpers ----
@@ -199,6 +202,7 @@ class SQLiteOAuthProvider(OAuthProvider):
             "state": params.state or "",
             "scope": " ".join(scopes_list),
             "response_type": "code",
+            "wiki_slug": self._wiki_slug,
         }
         if params.resource:
             consent_params["resource"] = params.resource
