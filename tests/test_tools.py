@@ -555,3 +555,78 @@ async def test_transport_error_returns_string(mock_api):
     result = await server_mod.read_note("Any")
     assert isinstance(result, str)
     assert "Could not reach the wiki API" in result
+
+
+_SECTIONED_PAGE = {
+    "name": "History",
+    "path": "Topics/History",
+    "content": (
+        "# History\n\nIntro.\n\n"
+        "## Background\n\nBackground content.\n\n"
+        "## Other\n\nOther content.\n"
+    ),
+    "frontmatter": None,
+    "links_to": [],
+    "linked_from": [],
+    "revision": "abc123",
+    "last_commit": None,
+}
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_found(mock_api):
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=_SECTIONED_PAGE)
+    )
+    result = await server_mod.read_note("Topics/History", section="Background")
+    assert "Background content." in result
+    assert "## Other" not in result
+    assert "Section: Background" in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_not_found(mock_api):
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=_SECTIONED_PAGE)
+    )
+    result = await server_mod.read_note("Topics/History", section="Nonexistent")
+    assert "Section not found" in result
+    assert "Background" in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_empty_returns_full(mock_api):
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=_SECTIONED_PAGE)
+    )
+    result = await server_mod.read_note("Topics/History", section="")
+    assert "Background content." in result
+    assert "Other content." in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_no_headings(mock_api):
+    page = dict(_SECTIONED_PAGE, content="Just plain text without any headings.")
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    result = await server_mod.read_note("Topics/History", section="Anything")
+    assert "no sections" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_ambiguous(mock_api):
+    page = dict(
+        _SECTIONED_PAGE,
+        content=(
+            "# Part One\n\n## Summary\n\nFirst summary.\n\n"
+            "# Part Two\n\n## Summary\n\nSecond summary.\n"
+        ),
+    )
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    result = await server_mod.read_note("Topics/History", section="Summary")
+    assert "Section not found" in result
+    assert "Part One > Summary" in result
+    assert "Part Two > Summary" in result
