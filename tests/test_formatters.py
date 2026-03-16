@@ -38,7 +38,7 @@ def test_format_read_note_full():
     assert "Category: trend" in result
     assert "Tags: military, p2-interceptor-race" in result
     assert "Confidence: high" in result
-    assert "Last updated: 2026-03-08" in result
+    assert "Last Updated: 2026-03-08" in result
     assert "Links to: Variables/Interceptor Stockpiles, Actors/Iran" in result
     assert "Linked from: Actors/Iran" in result
     assert "---" in result
@@ -78,7 +78,9 @@ def test_format_list_notes_with_category_filter():
     }
     result = format_list_notes(data, {"category": "actor"})
     assert "Found 1 notes matching category=actor:" in result
-    assert "- Actors/Iran (actor, 487 words, updated 2026-03-08)" in result
+    assert "Actors/Iran" in result
+    assert "actor" in result
+    assert "487 words" in result
 
 
 def test_format_list_notes_no_filter():
@@ -264,3 +266,4 @@ def test_format_orphaned_notes():
 def test_format_orphaned_notes_none():
     result = format_orphaned_notes([])
     assert "No orphaned notes found" in result
+    assert "incoming link" in result

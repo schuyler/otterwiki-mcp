@@ -14,24 +14,16 @@ def format_read_note(data: dict) -> str:
 
     fm = data.get("frontmatter")
     if fm:
-        parts = []
-        if fm.get("category"):
-            parts.append(f"Category: {fm.get('category', '')}")
-        tags = fm.get("tags")
-        if tags:
-            if isinstance(tags, list):
-                tags = ", ".join(tags)
-            parts.append(f"Tags: {tags}")
-        if parts:
-            lines.append(" | ".join(parts))
-
-        meta_parts = []
-        if fm.get("confidence"):
-            meta_parts.append(f"Confidence: {fm.get('confidence', '')}")
-        if fm.get("last_updated"):
-            meta_parts.append(f"Last updated: {fm.get('last_updated', '')}")
-        if meta_parts:
-            lines.append(" | ".join(meta_parts))
+        header_parts = []
+        for key, value in fm.items():
+            if key == "title":
+                continue  # already shown as page name
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            if value:
+                header_parts.append(f"{key.replace('_', ' ').title()}: {value}")
+        if header_parts:
+            lines.append(" | ".join(header_parts))
 
     links_to = data.get("links_to", [])
     linked_from = data.get("linked_from", [])
@@ -74,10 +66,21 @@ def format_list_notes(data: dict, filters: dict | None = None) -> str:
 
     lines = [header, ""]
     for p in pages:
-        cat = p.get("category") or "uncategorized"
+        path = p.get("path", "")
         words = p.get("content_length", 0)
-        updated = p.get("last_updated") or "unknown"
-        lines.append(f"- {p.get('path', '')} ({cat}, {words} words, updated {updated})")
+        # Build metadata from whatever frontmatter fields are present
+        meta_parts = []
+        for key, value in p.items():
+            if key in ("name", "path", "content_length"):
+                continue
+            if value is None:
+                continue
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            if value:
+                meta_parts.append(f"{key.replace('_', ' ')}: {value}")
+        meta = ", ".join(meta_parts) if meta_parts else "no metadata"
+        lines.append(f"- {path} ({meta}, {words} words)")
 
     return "\n".join(lines)
 
@@ -232,9 +235,9 @@ def format_orphaned_notes(orphans: list[str]) -> str:
     """Format orphaned notes list for the find_orphaned_notes tool."""
     n = len(orphans)
     if n == 0:
-        return "No orphaned notes found. All pages are linked from an index page."
+        return "No orphaned notes found. All pages have at least one incoming link."
 
-    lines = [f"Found {n} orphaned notes (not linked from any index page):", ""]
+    lines = [f"Found {n} orphaned notes (no incoming links from any other page):", ""]
     for path in orphans:
         lines.append(f"- {path}")
 

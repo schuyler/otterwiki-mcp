@@ -334,159 +334,123 @@ async def test_get_recent_changes(mock_api):
 
 @pytest.mark.asyncio
 async def test_find_orphaned_notes(mock_api):
-    # All pages
+    """Pages with no incoming links are orphaned; pages with incoming links are not."""
     mock_api.get("/api/v1/pages").mock(
-        side_effect=[
-            # First call: no filters (all pages)
-            httpx.Response(
-                200,
-                json={
-                    "pages": [
-                        {"name": "Iran", "path": "Actors/Iran", "category": "actor",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 100},
-                        {"name": "Master", "path": "Index/Master", "category": "index",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 50},
-                        {"name": "Orphan", "path": "Draft/Orphan", "category": None,
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 30},
-                    ],
-                    "total": 3,
-                },
-            ),
-            # Second call: category=index
-            httpx.Response(
-                200,
-                json={
-                    "pages": [
-                        {"name": "Master", "path": "Index/Master", "category": "index",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 50},
-                    ],
-                    "total": 1,
-                },
-            ),
-        ]
-    )
-    # Read index page
-    mock_api.get("/api/v1/pages/Index/Master").mock(
         return_value=httpx.Response(
             200,
             json={
-                "name": "Master",
-                "path": "Index/Master",
-                "content": "# Master\n\n[[Actors/Iran]]",
-                "frontmatter": {"category": "index"},
-                "links_to": ["Actors/Iran"],
-                "linked_from": [],
-                "revision": "abc",
-                "last_commit": None,
+                "pages": [
+                    {"name": "Iran", "path": "Actors/Iran", "category": "actor",
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 100},
+                    {"name": "Master", "path": "Index/Master", "category": "index",
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 50},
+                    {"name": "Orphan", "path": "Draft/Orphan", "category": None,
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 30},
+                ],
+                "total": 3,
             },
         )
     )
+    # Actors/Iran has an incoming link from Index/Master
+    mock_api.get("/api/v1/links/Actors/Iran").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Actors/Iran", "links_to": [], "linked_from": ["Index/Master"]},
+        )
+    )
+    # Index/Master has no incoming links (it's a root/nav page)
+    mock_api.get("/api/v1/links/Index/Master").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Index/Master", "links_to": ["Actors/Iran"], "linked_from": []},
+        )
+    )
+    # Draft/Orphan has no incoming links
+    mock_api.get("/api/v1/links/Draft/Orphan").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Draft/Orphan", "links_to": [], "linked_from": []},
+        )
+    )
     result = await server_mod.find_orphaned_notes()
-    assert "Found 1 orphaned notes" in result
+    assert "Found 2 orphaned notes" in result
     assert "- Draft/Orphan" in result
+    assert "- Index/Master" in result
     assert "Actors/Iran" not in result.split("orphaned")[1]  # Iran is linked, not orphaned
 
 
 @pytest.mark.asyncio
-async def test_find_orphaned_notes_zero_index_pages(mock_api):
-    """When no index pages exist, all non-index pages are orphaned."""
+async def test_find_orphaned_notes_all_linked(mock_api):
+    """When all pages have incoming links, none are orphaned."""
     mock_api.get("/api/v1/pages").mock(
-        side_effect=[
-            # First call: all pages (no filters)
-            httpx.Response(
-                200,
-                json={
-                    "pages": [
-                        {"name": "Iran", "path": "Actors/Iran", "category": "actor",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 100},
-                        {"name": "Orphan", "path": "Draft/Orphan", "category": None,
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 30},
-                        {"name": "Strategy", "path": "Trends/Strategy", "category": "trend",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 200},
-                    ],
-                    "total": 3,
-                },
-            ),
-            # Second call: category=index returns empty
-            httpx.Response(
-                200,
-                json={
-                    "pages": [],
-                    "total": 0,
-                },
-            ),
-        ]
-    )
-    result = await server_mod.find_orphaned_notes()
-    assert "Found 3 orphaned notes" in result
-    assert "- Actors/Iran" in result
-    assert "- Draft/Orphan" in result
-    assert "- Trends/Strategy" in result
-
-
-@pytest.mark.asyncio
-async def test_find_orphaned_notes_partial_index_failure(mock_api):
-    """One failing index-page fetch should not abort the whole operation."""
-    mock_api.get("/api/v1/pages").mock(
-        side_effect=[
-            # First call: all pages
-            httpx.Response(
-                200,
-                json={
-                    "pages": [
-                        {"name": "Iran", "path": "Actors/Iran", "category": "actor",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 100},
-                        {"name": "Master", "path": "Index/Master", "category": "index",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 50},
-                        {"name": "Broken", "path": "Index/Broken", "category": "index",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 50},
-                        {"name": "Orphan", "path": "Draft/Orphan", "category": None,
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 30},
-                    ],
-                    "total": 4,
-                },
-            ),
-            # Second call: category=index
-            httpx.Response(
-                200,
-                json={
-                    "pages": [
-                        {"name": "Master", "path": "Index/Master", "category": "index",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 50},
-                        {"name": "Broken", "path": "Index/Broken", "category": "index",
-                         "tags": [], "last_updated": "2026-03-08", "content_length": 50},
-                    ],
-                    "total": 2,
-                },
-            ),
-        ]
-    )
-    # Index/Master succeeds and links to Actors/Iran
-    mock_api.get("/api/v1/pages/Index/Master").mock(
         return_value=httpx.Response(
             200,
             json={
-                "name": "Master",
-                "path": "Index/Master",
-                "content": "# Master\n\n[[Actors/Iran]]",
-                "frontmatter": {"category": "index"},
-                "links_to": ["Actors/Iran"],
-                "linked_from": [],
-                "revision": "abc",
-                "last_commit": None,
+                "pages": [
+                    {"name": "Iran", "path": "Actors/Iran", "category": "actor",
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 100},
+                    {"name": "Strategy", "path": "Trends/Strategy", "category": "trend",
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 200},
+                ],
+                "total": 2,
             },
         )
     )
-    # Index/Broken returns a 500 error
-    mock_api.get("/api/v1/pages/Index/Broken").mock(
-        return_value=httpx.Response(500, json={"error": "Internal server error"})
+    mock_api.get("/api/v1/links/Actors/Iran").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Actors/Iran", "links_to": [], "linked_from": ["Trends/Strategy"]},
+        )
+    )
+    mock_api.get("/api/v1/links/Trends/Strategy").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Trends/Strategy", "links_to": ["Actors/Iran"], "linked_from": ["Actors/Iran"]},
+        )
     )
     result = await server_mod.find_orphaned_notes()
-    # Should not crash — should still produce results
+    assert "No orphaned notes found" in result
+
+
+@pytest.mark.asyncio
+async def test_find_orphaned_notes_partial_link_failure(mock_api):
+    """One failing get_links call should not abort the whole operation."""
+    mock_api.get("/api/v1/pages").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "pages": [
+                    {"name": "Iran", "path": "Actors/Iran", "category": "actor",
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 100},
+                    {"name": "Broken", "path": "Index/Broken", "category": "index",
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 50},
+                    {"name": "Orphan", "path": "Draft/Orphan", "category": None,
+                     "tags": [], "last_updated": "2026-03-08", "content_length": 30},
+                ],
+                "total": 3,
+            },
+        )
+    )
+    mock_api.get("/api/v1/links/Actors/Iran").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Actors/Iran", "links_to": [], "linked_from": ["Index/Broken"]},
+        )
+    )
+    # Index/Broken links endpoint returns 500
+    mock_api.get("/api/v1/links/Index/Broken").mock(
+        return_value=httpx.Response(500, json={"error": "Internal server error"})
+    )
+    mock_api.get("/api/v1/links/Draft/Orphan").mock(
+        return_value=httpx.Response(
+            200,
+            json={"path": "Draft/Orphan", "links_to": [], "linked_from": []},
+        )
+    )
+    result = await server_mod.find_orphaned_notes()
+    # Should not crash — Draft/Orphan has no incoming links
     assert "orphaned" in result
-    # Actors/Iran is linked from the successful index page, so only Draft/Orphan is orphaned
     assert "Draft/Orphan" in result
-    assert "Actors/Iran" not in result.split("orphaned")[1]
 
 
 @pytest.mark.asyncio

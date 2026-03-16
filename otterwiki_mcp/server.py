@@ -126,7 +126,7 @@ async def write_note(
 
     Args:
         path: Page path, e.g. "Actors/Iran"
-        content: Full page content (markdown with optional YAML frontmatter between --- delimiters). Recognized frontmatter fields: category (actor|variable|trend|proposition|event|reference|index), tags (list of strings), confidence (low|medium|high), last_updated (YYYY-MM-DD).
+        content: Full page content (markdown with optional YAML frontmatter between --- delimiters).
         revision: Current revision SHA of the page (from read_note). Required when updating an existing page. Omit when creating a new page.
         commit_message: Optional commit message.
     """
@@ -176,7 +176,7 @@ async def list_notes(
 
     Args:
         prefix: Filter by path prefix, e.g. "Actors/" or "Events/"
-        category: Filter by frontmatter category (actor, variable, trend, proposition, event, reference, index)
+        category: Filter by frontmatter category
         tag: Filter by frontmatter tag
         updated_since: ISO 8601 date, e.g. "2026-03-08"
     """
@@ -318,43 +318,34 @@ async def delete_note(path: str, commit_message: str = "") -> str:
 
 @mcp.tool()
 async def find_orphaned_notes() -> str:
-    """Find wiki pages that are not linked from any index page. Orphaned pages may be missing from the wiki's navigation structure."""
+    """Find wiki pages that no other page links to. Orphaned pages may be missing from the wiki's navigation structure."""
     _set_host_from_request()
     try:
         # Get all pages
         all_data = await client.list_pages()
-        all_paths = {p["path"] for p in all_data.get("pages", [])}
+        all_pages = all_data.get("pages", [])
+        all_paths = [p["path"] for p in all_pages]
 
-        # Get index pages
-        index_data = await client.list_pages(category="index")
-        index_pages = index_data.get("pages", [])
-        index_paths = {p["path"] for p in index_pages}
-
-        if len(index_pages) > _MAX_INDEX_PAGES:
-            return (
-                f"Too many index pages ({len(index_pages)}). "
-                f"Maximum supported is {_MAX_INDEX_PAGES}."
-            )
-
-        # Fetch all index pages in parallel; skip failures
+        # Fetch link data for all pages in parallel; skip failures
         results = await asyncio.gather(
-            *(client.get_page(p["path"]) for p in index_pages),
+            *(client.get_links(path) for path in all_paths),
             return_exceptions=True,
         )
 
-        linked_paths: set[str] = set()
-        for idx_page, result in zip(index_pages, results):
+        # A page is orphaned if no other page links to it (linked_from is empty)
+        # Exception: "Home" is the root page and is not expected to have incoming links
+        orphans = []
+        for path, result in zip(all_paths, results):
             if isinstance(result, BaseException):
-                logger.warning(
-                    "Failed to fetch index page %s: %s",
-                    idx_page["path"],
-                    result,
-                )
+                logger.warning("Failed to fetch links for %s: %s", path, result)
                 continue
-            linked_paths.update(result.get("links_to", []))
+            if path == "Home":
+                continue
+            linked_from = result.get("linked_from", [])
+            if not linked_from:
+                orphans.append(path)
 
-        # Orphans = all pages - linked pages - index pages themselves
-        orphans = sorted(all_paths - linked_paths - index_paths)
+        orphans.sort()
         return formatters.format_orphaned_notes(orphans)
     except WikiAPIError as e:
         return _handle_api_error(e)
