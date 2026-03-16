@@ -115,7 +115,7 @@ async def read_note(path: str, revision: str = "", section: str = "") -> str:
         data = await client.get_page(path, revision=revision or None)
         if section:
             content = data.get("content", "")
-            section_text, error_paths = sections.extract_section(content, section)
+            section_text, error_paths, matched_path = sections.extract_section(content, section)
             if not section_text:
                 if error_paths == ["(no sections found)"]:
                     return f"Section not found: '{section}'. This page has no sections."
@@ -125,7 +125,9 @@ async def read_note(path: str, revision: str = "", section: str = "") -> str:
                 )
             data = dict(data)
             data["content"] = section_text
-            data["_section"] = section
+            data["_section"] = matched_path or section
+            data["links_to"] = []
+            data["linked_from"] = []
         return formatters.format_read_note(data)
     except WikiAPIError as e:
         return _handle_api_error(e)
@@ -237,10 +239,11 @@ async def semantic_search(query: str, n: int = 5, max_chunks_per_page: int = 2) 
     Args:
         query: Natural language query describing what you're looking for
         n: Number of results to return (1-50, default 5)
-        max_chunks_per_page: Maximum number of chunks to return per page (default 2)
+        max_chunks_per_page: Maximum number of chunks to return per page (1-10, default 2)
     """
     _set_host_from_request()
     n = max(1, min(n, 50))
+    max_chunks_per_page = max(1, min(max_chunks_per_page, 10))
     try:
         data = await client.semantic_search(query, n=n, max_chunks_per_page=max_chunks_per_page)
         return formatters.format_semantic_results(data)

@@ -21,12 +21,27 @@ def _parse_headings(content: str) -> list[_Heading]:
     lines = content.splitlines(keepends=True)
     headings: list[_Heading] = []
     in_fence = False
+    fence_char: str = ""
+    fence_count: int = 0
     stack: list[tuple[int, str]] = []  # [(level, title), ...]
 
     for i, line in enumerate(lines):
         # Toggle fence state
-        if re.match(r'^\s*`{3,}', line):
-            in_fence = not in_fence
+        m_fence = re.match(r'^\s*(`{3,}|~{3,})', line)
+        if m_fence:
+            if not in_fence:
+                # Opening fence: record character and count
+                fence_str = m_fence.group(1)
+                fence_char = fence_str[0]
+                fence_count = len(fence_str)
+                in_fence = True
+            else:
+                # Closing fence: must use same character with >= count
+                fence_str = m_fence.group(1)
+                if fence_str[0] == fence_char and len(fence_str) >= fence_count:
+                    in_fence = False
+                    fence_char = ""
+                    fence_count = 0
             continue
 
         if in_fence:
@@ -37,7 +52,7 @@ def _parse_headings(content: str) -> list[_Heading]:
             continue
 
         level = len(m.group(1))
-        title = m.group(2).strip()
+        title = m.group(2).strip().rstrip('#').strip()
 
         # Pop stack entries at same or deeper level
         while stack and stack[-1][0] >= level:
@@ -55,20 +70,22 @@ def list_sections(content: str) -> list[str]:
     return [h.path for h in _parse_headings(content)]
 
 
-def extract_section(content: str, section_query: str) -> tuple[str, list[str]]:
+def extract_section(content: str, section_query: str) -> tuple[str, list[str], str | None]:
     """Extract the text of a section by title or full path.
 
-    Returns (section_text, error_paths). On success, error_paths is [].
+    Returns (section_text, error_paths, matched_path).
+    On success, error_paths is [] and matched_path is the canonical heading path.
     On failure, section_text is "" and error_paths lists available paths
-    (or ["(no sections found)"] if the document has no headings).
-    An empty section_query returns the full document content.
+    (or ["(no sections found)"] if the document has no headings), and
+    matched_path is None.
+    An empty section_query returns the full document content with matched_path None.
     """
     if not section_query:
-        return (content, [])
+        return (content, [], None)
 
     headings = _parse_headings(content)
     if not headings:
-        return ("", ["(no sections found)"])
+        return ("", ["(no sections found)"], None)
 
     q = section_query.strip().lower()
 
@@ -85,12 +102,12 @@ def extract_section(content: str, section_query: str) -> tuple[str, list[str]]:
         if len(title_matches) == 1:
             matched = title_matches[0]
         elif len(title_matches) > 1:
-            return ("", [h.path for h in title_matches])
+            return ("", [h.path for h in title_matches], None)
         else:
-            return ("", [h.path for h in headings])
+            return ("", [h.path for h in headings], None)
     else:
         # Multiple path matches (shouldn't normally happen, but handle gracefully)
-        return ("", [h.path for h in path_matches])
+        return ("", [h.path for h in path_matches], None)
 
     # Extract lines from the matched heading to the next heading at same or higher level
     lines = content.splitlines(keepends=True)
@@ -102,4 +119,4 @@ def extract_section(content: str, section_query: str) -> tuple[str, list[str]]:
             break
 
     section_text = "".join(lines[start:end])
-    return (section_text, [])
+    return (section_text, [], matched.path)

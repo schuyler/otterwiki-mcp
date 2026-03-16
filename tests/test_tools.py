@@ -598,7 +598,7 @@ async def test_read_note_section_found(mock_api):
     result = await server_mod.read_note("Topics/History", section="Background")
     assert "Background content." in result
     assert "## Other" not in result
-    assert "Section: Background" in result
+    assert "Section: History > Background" in result
 
 
 @pytest.mark.asyncio
@@ -647,3 +647,48 @@ async def test_read_note_section_ambiguous(mock_api):
     assert "Section not found" in result
     assert "Part One > Summary" in result
     assert "Part Two > Summary" in result
+
+
+@pytest.mark.asyncio
+async def test_read_note_section_clears_links(mock_api):
+    """When a section is extracted, links_to and linked_from should be absent."""
+    page = dict(
+        _SECTIONED_PAGE,
+        links_to=["Other/Page"],
+        linked_from=["Index/Main"],
+    )
+    mock_api.get("/api/v1/pages/Topics/History").mock(
+        return_value=httpx.Response(200, json=page)
+    )
+    result = await server_mod.read_note("Topics/History", section="Background")
+    assert "Background content." in result
+    assert "Other/Page" not in result
+    assert "Index/Main" not in result
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_max_chunks_clamped(mock_api):
+    """max_chunks_per_page above 10 should be clamped to 10."""
+    route = mock_api.get("/api/v1/semantic-search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"query": "test", "results": [], "total": 0},
+        )
+    )
+    await server_mod.semantic_search("test", n=5, max_chunks_per_page=99)
+    req_url = str(route.calls[0].request.url)
+    assert "max_chunks_per_page=10" in req_url
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_max_chunks_clamped_min(mock_api):
+    """max_chunks_per_page below 1 should be clamped to 1."""
+    route = mock_api.get("/api/v1/semantic-search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"query": "test", "results": [], "total": 0},
+        )
+    )
+    await server_mod.semantic_search("test", n=5, max_chunks_per_page=0)
+    req_url = str(route.calls[0].request.url)
+    assert "max_chunks_per_page=1" in req_url
