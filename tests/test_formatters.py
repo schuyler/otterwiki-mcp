@@ -267,3 +267,88 @@ def test_format_orphaned_notes_none():
     result = format_orphaned_notes([])
     assert "No orphaned notes found" in result
     assert "incoming link" in result
+
+
+def test_format_semantic_results_legacy_schema():
+    """Existing schema (snippet only) still works without crashing."""
+    data = {
+        "query": "air defense depletion",
+        "results": [
+            {
+                "name": "Strategy",
+                "path": "Trends/Iran Attrition Strategy",
+                "snippet": "multi-phase attrition campaign...",
+                "distance": 0.34,
+            }
+        ],
+        "total": 1,
+    }
+    result = format_semantic_results(data)
+    assert "distance: 0.34" in result
+    assert "multi-phase attrition campaign" in result
+
+
+def test_format_semantic_results_new_fields_full():
+    """New schema fields: text, section_path, chunk_index, total_chunks, page_word_count."""
+    data = {
+        "query": "air power",
+        "results": [
+            {
+                "path": "Trends/Strategy",
+                "distance": 0.25,
+                "text": "Air power projection details here.",
+                "section_path": "Background > Air Assets",
+                "chunk_index": 0,
+                "total_chunks": 3,
+                "page_word_count": 1500,
+            }
+        ],
+        "total": 1,
+    }
+    result = format_semantic_results(data)
+    assert "[1/3]" in result
+    assert "1500 words" in result
+    assert "Section: Background > Air Assets" in result
+    assert "Air power projection details here." in result
+
+
+def test_format_semantic_results_text_preferred_over_snippet():
+    """When both text and snippet are present, text wins."""
+    data = {
+        "query": "test",
+        "results": [
+            {
+                "path": "Test/Page",
+                "distance": 0.1,
+                "text": "Text field content.",
+                "snippet": "Snippet content.",
+            }
+        ],
+        "total": 1,
+    }
+    result = format_semantic_results(data)
+    assert "Text field content." in result
+    assert "Snippet content." not in result
+
+
+def test_format_semantic_results_no_section_path_omits_line():
+    """When section_path is absent, no Section: line is emitted."""
+    data = {
+        "query": "test",
+        "results": [
+            {
+                "path": "Test/Page",
+                "distance": 0.1,
+                "text": "Some text.",
+            }
+        ],
+        "total": 1,
+    }
+    result = format_semantic_results(data)
+    assert "Section:" not in result
+
+
+def test_format_semantic_results_no_results():
+    data = {"query": "foo", "results": [], "total": 0}
+    result = format_semantic_results(data)
+    assert result == '0 results for "foo":'
