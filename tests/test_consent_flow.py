@@ -371,3 +371,95 @@ class TestCompleteAuthorization:
         oauth_token = await provider.exchange_authorization_code(client, auth_code)
         assert oauth_token.access_token.startswith("access_")
         assert oauth_token.refresh_token.startswith("refresh_")
+
+    @pytest.mark.asyncio
+    async def test_wiki_slug_mismatch_rejected(self, tmp_path):
+        provider = _make_provider(tmp_path, base_url="https://mywiki.robot.wtf")
+        client = _make_client()
+        await provider.register_client(client)
+
+        token = _sign_approval_token({
+            "client_id": "test-client",
+            "exp": int(time.time()) + 120,
+            "wiki_slug": "evil",
+        })
+
+        with pytest.raises(AuthorizeError) as exc_info:
+            await provider.complete_authorization(
+                approval_token=token,
+                client_id="test-client",
+                redirect_uri="http://localhost/callback",
+                code_challenge="c",
+                state="s",
+                scope="",
+            )
+        assert "wiki_slug mismatch" in exc_info.value.error_description
+
+    @pytest.mark.asyncio
+    async def test_wiki_slug_match_accepted(self, tmp_path):
+        provider = _make_provider(tmp_path, base_url="https://dev.robot.wtf")
+        client = _make_client()
+        await provider.register_client(client)
+
+        token = _sign_approval_token({
+            "client_id": "test-client",
+            "exp": int(time.time()) + 120,
+            "wiki_slug": "dev",
+        })
+
+        redirect = await provider.complete_authorization(
+            approval_token=token,
+            client_id="test-client",
+            redirect_uri="http://localhost/callback",
+            code_challenge="c",
+            state="s",
+            scope="",
+        )
+        assert "code=" in redirect
+
+    @pytest.mark.asyncio
+    async def test_wiki_slug_check_skipped_when_empty(self, tmp_path):
+        """Empty server slug (localhost) — slug check is skipped regardless of token slug."""
+        provider = _make_provider(tmp_path, base_url="http://localhost:8090")
+        client = _make_client()
+        await provider.register_client(client)
+
+        token = _sign_approval_token({
+            "client_id": "test-client",
+            "exp": int(time.time()) + 120,
+            "wiki_slug": "anything",
+        })
+
+        redirect = await provider.complete_authorization(
+            approval_token=token,
+            client_id="test-client",
+            redirect_uri="http://localhost/callback",
+            code_challenge="c",
+            state="s",
+            scope="",
+        )
+        assert "code=" in redirect
+
+    @pytest.mark.asyncio
+    async def test_wiki_slug_missing_from_token_rejected(self, tmp_path):
+        """Token without wiki_slug key fails when server has a non-empty slug."""
+        provider = _make_provider(tmp_path, base_url="https://dev.robot.wtf")
+        client = _make_client()
+        await provider.register_client(client)
+
+        token = _sign_approval_token({
+            "client_id": "test-client",
+            "exp": int(time.time()) + 120,
+            # no wiki_slug key
+        })
+
+        with pytest.raises(AuthorizeError) as exc_info:
+            await provider.complete_authorization(
+                approval_token=token,
+                client_id="test-client",
+                redirect_uri="http://localhost/callback",
+                code_challenge="c",
+                state="s",
+                scope="",
+            )
+        assert "wiki_slug mismatch" in exc_info.value.error_description
