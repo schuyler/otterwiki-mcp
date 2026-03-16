@@ -291,6 +291,19 @@ class SQLiteOAuthProvider(OAuthProvider):
                 error_description=f"Client '{client_id}' not registered.",
             )
 
+        # Validate redirect_uri against client's registered URIs
+        if client.redirect_uris:
+            registered = [str(u) for u in client.redirect_uris]
+            if redirect_uri not in registered:
+                logger.warning(
+                    "redirect_uri not in client's registered URIs: %s",
+                    redirect_uri,
+                )
+                raise AuthorizeError(
+                    error="invalid_request",
+                    error_description="redirect_uri does not match any registered URI for this client",
+                )
+
         # Issue auth code
         code_value = f"authcode_{secrets.token_hex(20)}"
         expires_at = time.time() + AUTH_CODE_EXPIRY_SECONDS
