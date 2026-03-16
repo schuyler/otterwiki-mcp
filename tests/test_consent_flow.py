@@ -21,11 +21,11 @@ SIGNING_KEY = derive_signing_key("test-pem-data-" + "x" * 50)
 CONSENT_URL = "https://robot.wtf/auth/oauth/consent"
 
 
-def _make_provider(tmp_path, consent_url=CONSENT_URL, signing_key=SIGNING_KEY):
+def _make_provider(tmp_path, consent_url=CONSENT_URL, signing_key=SIGNING_KEY, base_url="https://dev.robot.wtf"):
     db = str(tmp_path / "test_oauth.db")
     return SQLiteOAuthProvider(
         db,
-        base_url="http://localhost:8090",
+        base_url=base_url,
         consent_url=consent_url,
         signing_key=signing_key,
     )
@@ -89,6 +89,7 @@ class TestAuthorizeConsentRedirect:
         assert qs["state"] == ["test-state"]
         assert qs["scope"] == ["read write"]
         assert qs["response_type"] == ["code"]
+        assert qs["wiki_slug"] == ["dev"]
 
     @pytest.mark.asyncio
     async def test_no_auth_code_stored(self, tmp_path):
@@ -123,6 +124,16 @@ class TestAuthorizeConsentRedirect:
         with pytest.raises(AuthorizeError) as exc_info:
             await provider.authorize(client, _make_auth_params())
         assert exc_info.value.error_description == "Consent URL not configured"
+
+    @pytest.mark.asyncio
+    async def test_wiki_slug_derived_from_base_url(self, tmp_path):
+        provider = _make_provider(tmp_path, base_url="https://myslug.robot.wtf")
+        client = _make_client()
+        await provider.register_client(client)
+
+        url = await provider.authorize(client, _make_auth_params())
+        qs = parse_qs(urlparse(url).query)
+        assert qs["wiki_slug"] == ["myslug"]
 
 
 # --- complete_authorization() ---

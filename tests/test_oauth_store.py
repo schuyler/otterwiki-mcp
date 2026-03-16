@@ -33,7 +33,7 @@ CONSENT_URL = "https://robot.wtf/auth/oauth/consent"
 def _make_provider(tmp_path, **kwargs):
     db = str(tmp_path / "test_oauth.db")
     defaults = dict(
-        base_url="http://localhost:8090",
+        base_url="https://dev.robot.wtf",
         consent_url=CONSENT_URL,
         signing_key=SIGNING_KEY,
     )
@@ -140,10 +140,10 @@ class TestClientRegistration:
         """Data survives when a new provider instance opens the same DB."""
         db = str(tmp_path / "persist.db")
 
-        p1 = SQLiteOAuthProvider(db, base_url="http://localhost:8090")
+        p1 = SQLiteOAuthProvider(db, base_url="https://dev.robot.wtf")
         await p1.register_client(_make_client())
 
-        p2 = SQLiteOAuthProvider(db, base_url="http://localhost:8090")
+        p2 = SQLiteOAuthProvider(db, base_url="https://dev.robot.wtf")
         loaded = await p2.get_client("test-client")
         assert loaded is not None
         assert loaded.client_id == "test-client"
