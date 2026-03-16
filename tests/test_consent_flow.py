@@ -135,6 +135,45 @@ class TestAuthorizeConsentRedirect:
         qs = parse_qs(urlparse(url).query)
         assert qs["wiki_slug"] == ["myslug"]
 
+    @pytest.mark.asyncio
+    async def test_localhost_base_url_empty_slug(self, tmp_path):
+        """localhost (2-part or no subdomain) yields empty wiki_slug; consent redirect still includes wiki_slug= param."""
+        provider = _make_provider(tmp_path, base_url="http://localhost:8090")
+        assert provider._wiki_slug == ""
+
+        client = _make_client()
+        await provider.register_client(client)
+
+        url = await provider.authorize(client, _make_auth_params())
+        qs = parse_qs(urlparse(url).query, keep_blank_values=True)
+        assert "wiki_slug" in qs
+        assert qs["wiki_slug"] == [""]
+
+
+# --- wiki_slug startup validation ---
+
+
+class TestWikiSlugValidation:
+    def test_valid_slug_accepted(self, tmp_path):
+        """Slugs matching [a-z0-9-]+ must be accepted without error."""
+        provider = _make_provider(tmp_path, base_url="https://my-wiki.robot.wtf")
+        assert provider._wiki_slug == "my-wiki"
+
+    def test_invalid_slug_raises_value_error(self, tmp_path):
+        """A derived slug with invalid characters (e.g. underscore) must raise ValueError."""
+        with pytest.raises(ValueError, match="wiki_slug"):
+            _make_provider(tmp_path, base_url="https://my_wiki.robot.wtf")
+
+    def test_empty_slug_does_not_raise(self, tmp_path):
+        """Empty slug (localhost / 2-part hostname) must not raise — allows local dev."""
+        provider = _make_provider(tmp_path, base_url="http://localhost:8090")
+        assert provider._wiki_slug == ""
+
+    def test_two_part_hostname_empty_slug(self, tmp_path):
+        """2-part hostname (e.g. robot.wtf) yields empty slug without raising."""
+        provider = _make_provider(tmp_path, base_url="https://robot.wtf")
+        assert provider._wiki_slug == ""
+
 
 # --- complete_authorization() ---
 

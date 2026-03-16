@@ -8,6 +8,7 @@ restart.
 
 import json
 import logging
+import re
 import secrets
 import sqlite3
 import time
@@ -100,6 +101,19 @@ class SQLiteOAuthProvider(OAuthProvider):
         parsed = urlparse(base_url)
         host_parts = parsed.hostname.split(".") if parsed.hostname else []
         self._wiki_slug = host_parts[0] if len(host_parts) >= 3 else ""
+        if self._wiki_slug:
+            if not re.fullmatch(r"[a-z0-9-]+", self._wiki_slug):
+                raise ValueError(
+                    f"wiki_slug derived from base_url is invalid: {self._wiki_slug!r}. "
+                    "Must match [a-z0-9-]+"
+                )
+        else:
+            logger.warning(
+                "wiki_slug is empty (base_url=%r has no 3-part hostname); "
+                "OAuth consent redirect will include wiki_slug= (empty). "
+                "This is expected for local development.",
+                base_url,
+            )
         self._ensure_schema()
 
     # ---- helpers ----
