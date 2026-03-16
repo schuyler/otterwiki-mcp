@@ -19,6 +19,7 @@ from otterwiki_mcp.config import get_config
 from otterwiki_mcp.consent import derive_signing_key
 from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
 from otterwiki_mcp import formatters
+from otterwiki_mcp import sections
 
 logger = logging.getLogger(__name__)
 
@@ -101,16 +102,30 @@ def _handle_api_error(e: WikiAPIError) -> str:
 
 
 @mcp.tool()
-async def read_note(path: str, revision: str = "") -> str:
+async def read_note(path: str, revision: str = "", section: str = "") -> str:
     """Read a wiki page by path. Returns frontmatter, content, and WikiLinks.
 
     Args:
         path: Page path, e.g. "Actors/Iran"
         revision: Optional git revision SHA to read a historical version. Use get_history to find available revision SHAs.
+        section: Optional section title or path (e.g. "Background" or "Background > Military Strategy") to return only that section's content.
     """
     _set_host_from_request()
     try:
         data = await client.get_page(path, revision=revision or None)
+        if section:
+            content = data.get("content", "")
+            section_text, error_paths = sections.extract_section(content, section)
+            if not section_text:
+                if error_paths == ["(no sections found)"]:
+                    return f"Section not found: '{section}'. This page has no sections."
+                return (
+                    f"Section not found: '{section}'. Available sections:\n"
+                    + "\n".join(f"  - {p}" for p in error_paths)
+                )
+            data = dict(data)
+            data["content"] = section_text
+            data["_section"] = section
         return formatters.format_read_note(data)
     except WikiAPIError as e:
         return _handle_api_error(e)

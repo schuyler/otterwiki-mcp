@@ -12,6 +12,10 @@ def format_read_note(data: dict) -> str:
     if rev:
         lines.append(f"Revision: {rev}")
 
+    section = data.get("_section")
+    if section:
+        lines.append(f"Section: {section}")
+
     fm = data.get("frontmatter")
     if fm:
         header_parts = []
