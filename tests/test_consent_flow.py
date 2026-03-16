@@ -467,3 +467,48 @@ class TestCompleteAuthorization:
                 scope="",
             )
         assert "wiki_slug mismatch" in exc_info.value.error_description
+
+    @pytest.mark.asyncio
+    async def test_redirect_uri_mismatch_rejected(self, tmp_path):
+        provider = _make_provider(tmp_path)
+        client = _make_client()  # registered with redirect_uris=["http://localhost/callback"]
+        await provider.register_client(client)
+
+        token = _sign_approval_token({
+            "client_id": "test-client",
+            "exp": int(time.time()) + 120,
+            "wiki_slug": "dev",
+        })
+
+        with pytest.raises(AuthorizeError) as exc_info:
+            await provider.complete_authorization(
+                approval_token=token,
+                client_id="test-client",
+                redirect_uri="http://evil.example.com/steal",
+                code_challenge="c",
+                state="s",
+                scope="",
+            )
+        assert "redirect_uri" in exc_info.value.error_description
+
+    @pytest.mark.asyncio
+    async def test_redirect_uri_match_accepted(self, tmp_path):
+        provider = _make_provider(tmp_path)
+        client = _make_client()  # registered with redirect_uris=["http://localhost/callback"]
+        await provider.register_client(client)
+
+        token = _sign_approval_token({
+            "client_id": "test-client",
+            "exp": int(time.time()) + 120,
+            "wiki_slug": "dev",
+        })
+
+        redirect = await provider.complete_authorization(
+            approval_token=token,
+            client_id="test-client",
+            redirect_uri="http://localhost/callback",
+            code_challenge="c",
+            state="s",
+            scope="",
+        )
+        assert "code=" in redirect
