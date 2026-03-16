@@ -167,10 +167,9 @@ class WikiClient:
     async def search(self, query: str) -> dict:
         return await self._request("GET", "/api/v1/search", params={"q": query})
 
-    async def semantic_search(self, query: str, n: int = 5) -> dict:
-        return await self._request(
-            "GET", "/api/v1/semantic-search", params={"q": query, "n": n}
-        )
+    async def semantic_search(self, query: str, n: int = 5, max_chunks_per_page: int = 2) -> dict:
+        params = {"q": query, "n": n, "max_chunks_per_page": max_chunks_per_page}
+        return await self._request("GET", "/api/v1/semantic-search", params=params)
 
     # --- Links ---
 

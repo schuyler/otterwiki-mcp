@@ -231,17 +231,18 @@ async def search_notes(query: str) -> str:
 
 
 @mcp.tool()
-async def semantic_search(query: str, n: int = 5) -> str:
+async def semantic_search(query: str, n: int = 5, max_chunks_per_page: int = 2) -> str:
     """Semantic similarity search. Finds pages conceptually related to the query, even without exact keyword matches.
 
     Args:
         query: Natural language query describing what you're looking for
         n: Number of results to return (1-50, default 5)
+        max_chunks_per_page: Maximum number of chunks to return per page (default 2)
     """
     _set_host_from_request()
     n = max(1, min(n, 50))
     try:
-        data = await client.semantic_search(query, n=n)
+        data = await client.semantic_search(query, n=n, max_chunks_per_page=max_chunks_per_page)
         return formatters.format_semantic_results(data)
     except WikiAPIError as e:
         return _handle_api_error(e)

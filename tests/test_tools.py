@@ -240,6 +240,23 @@ async def test_semantic_search(mock_api):
 
 
 @pytest.mark.asyncio
+async def test_semantic_search_passes_max_chunks_per_page(mock_api):
+    route = mock_api.get("/api/v1/semantic-search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "query": "air defense",
+                "results": [],
+                "total": 0,
+            },
+        )
+    )
+    await server_mod.semantic_search("air defense", n=3, max_chunks_per_page=1)
+    req_url = str(route.calls[0].request.url)
+    assert "max_chunks_per_page=1" in req_url
+
+
+@pytest.mark.asyncio
 async def test_rename_note_success(mock_api):
     mock_api.post("/api/v1/pages/Actors/Iran/rename").mock(
         return_value=httpx.Response(
