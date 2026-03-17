@@ -18,6 +18,7 @@ from otterwiki_mcp.api_client import WikiAPIError, WikiClient, current_host_head
 from otterwiki_mcp.config import get_config
 from otterwiki_mcp.consent import derive_signing_key
 from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
+from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from otterwiki_mcp import formatters
 from otterwiki_mcp import sections
 
@@ -41,8 +42,8 @@ mcp = FastMCP("Otterwiki Research Wiki")
 
 # Initialized in main(); tools reference via module-level variable.
 client: WikiClient
-oauth_provider: SQLiteOAuthProvider
-platform_domain: str = "robot.wtf"
+oauth_provider: SQLiteOAuthProvider | InMemoryOAuthProvider
+platform_domain: str = ""
 
 
 def _set_host_from_request() -> None:
@@ -452,13 +453,22 @@ def main():
 
     signing_key = _load_signing_key(cfg.signing_key_path)
 
-    oauth_provider = SQLiteOAuthProvider(
-        cfg.mcp_oauth_db,
-        base_url=cfg.mcp_base_url,
-        consent_url=cfg.consent_url,
-        signing_key=signing_key,
-        client_registration_options=ClientRegistrationOptions(enabled=True),
-    )
+    if cfg.platform_domain and cfg.consent_url:
+        oauth_provider = SQLiteOAuthProvider(
+            cfg.mcp_oauth_db,
+            base_url=cfg.mcp_base_url,
+            consent_url=cfg.consent_url,
+            signing_key=signing_key,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+        )
+    else:
+        logger.info(
+            "PLATFORM_DOMAIN not set — using InMemoryOAuthProvider (standalone/development mode)"
+        )
+        oauth_provider = InMemoryOAuthProvider(
+            base_url=cfg.mcp_base_url,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+        )
     verifiers = []
     if cfg.mcp_auth_token:
         verifiers.append(

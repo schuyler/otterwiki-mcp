@@ -5,8 +5,10 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from fastmcp.server.auth import MultiAuth, StaticTokenVerifier
+from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 
 import otterwiki_mcp.server as server_mod
+from otterwiki_mcp.config import Config
 from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
 
 
@@ -48,19 +50,23 @@ class TestAuthSetup:
     """main() constructs MultiAuth correctly based on env."""
 
     def test_multiauth_without_token(self, monkeypatch):
-        """No MCP_AUTH_TOKEN -> MultiAuth with SQLiteOAuthProvider, no verifiers."""
+        """No MCP_AUTH_TOKEN -> MultiAuth with InMemoryOAuthProvider (no PLATFORM_DOMAIN set), no verifiers."""
+        monkeypatch.delenv("PLATFORM_DOMAIN", raising=False)
+        monkeypatch.delenv("CONSENT_URL", raising=False)
         auth = _run_main(monkeypatch)
 
         assert isinstance(auth, MultiAuth)
-        assert isinstance(auth.server, SQLiteOAuthProvider)
+        assert isinstance(auth.server, InMemoryOAuthProvider)
         assert auth.verifiers == []
 
     def test_multiauth_with_token(self, monkeypatch):
-        """MCP_AUTH_TOKEN set -> MultiAuth with SQLiteOAuthProvider + StaticTokenVerifier."""
+        """MCP_AUTH_TOKEN set -> MultiAuth with InMemoryOAuthProvider (no PLATFORM_DOMAIN) + StaticTokenVerifier."""
+        monkeypatch.delenv("PLATFORM_DOMAIN", raising=False)
+        monkeypatch.delenv("CONSENT_URL", raising=False)
         auth = _run_main(monkeypatch, extra_env={"MCP_AUTH_TOKEN": "my-secret-token"})
 
         assert isinstance(auth, MultiAuth)
-        assert isinstance(auth.server, SQLiteOAuthProvider)
+        assert isinstance(auth.server, InMemoryOAuthProvider)
         assert len(auth.verifiers) == 1
         assert isinstance(auth.verifiers[0], StaticTokenVerifier)
 
@@ -138,3 +144,37 @@ class TestMainSideEffects:
         """main() attaches the _lifespan context manager to mcp."""
         _run_main(monkeypatch)
         assert server_mod.mcp._lifespan is server_mod._lifespan
+
+
+class TestOAuthProviderSelection:
+    """main() selects the correct OAuth provider based on PLATFORM_DOMAIN."""
+
+    def test_no_platform_domain_uses_in_memory_provider(self, monkeypatch):
+        """When PLATFORM_DOMAIN is not set, InMemoryOAuthProvider is used."""
+        monkeypatch.delenv("PLATFORM_DOMAIN", raising=False)
+        monkeypatch.delenv("CONSENT_URL", raising=False)
+        auth = _run_main(monkeypatch)
+
+        assert isinstance(auth, MultiAuth)
+        assert isinstance(auth.server, InMemoryOAuthProvider)
+
+    def test_platform_domain_set_uses_sqlite_provider(self, monkeypatch):
+        """When PLATFORM_DOMAIN is set, SQLiteOAuthProvider is used."""
+        monkeypatch.setenv("PLATFORM_DOMAIN", "example.com")
+        monkeypatch.setenv("CONSENT_URL", "https://example.com/auth/oauth/consent")
+        auth = _run_main(monkeypatch)
+
+        assert isinstance(auth, MultiAuth)
+        assert isinstance(auth.server, SQLiteOAuthProvider)
+
+    def test_consent_url_no_default(self, monkeypatch):
+        """CONSENT_URL has no default value — Config.consent_url is None/empty when env var not set."""
+        monkeypatch.delenv("CONSENT_URL", raising=False)
+        cfg = Config()
+        assert not cfg.consent_url  # must be None or empty string, not a robot.wtf URL
+
+    def test_platform_domain_no_default(self, monkeypatch):
+        """PLATFORM_DOMAIN has no default value — Config.platform_domain is None/empty when env var not set."""
+        monkeypatch.delenv("PLATFORM_DOMAIN", raising=False)
+        cfg = Config()
+        assert not cfg.platform_domain  # must be None or empty string, not "robot.wtf"
