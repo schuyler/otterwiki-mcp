@@ -471,6 +471,7 @@ def main():
             base_url=cfg.mcp_base_url,
             consent_url=cfg.consent_url,
             signing_key=signing_key,
+            platform_domain=cfg.platform_domain,
             client_registration_options=ClientRegistrationOptions(enabled=True),
         )
     elif cfg.platform_domain or cfg.consent_url:

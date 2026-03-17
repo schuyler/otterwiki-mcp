@@ -24,16 +24,22 @@ from mcp.server.auth.provider import (
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from fastmcp.server.auth.auth import (
     ClientRegistrationOptions,
     OAuthProvider,
     RevocationOptions,
 )
+from fastmcp.server.dependencies import get_http_request
 
 from otterwiki_mcp.consent import OAUTH_PARAM_NAMES, verify_approval_token
 
 logger = logging.getLogger(__name__)
+
+_SLUG_RE = re.compile(r"^[a-z0-9-]+$")
 
 # Expiration defaults
 AUTH_CODE_EXPIRY_SECONDS = 10 * 60  # 10 minutes
@@ -88,6 +94,7 @@ class SQLiteOAuthProvider(OAuthProvider):
         base_url: str,
         consent_url: str = "",
         signing_key: bytes = b"",
+        platform_domain: str = "",
         client_registration_options: ClientRegistrationOptions | None = None,
         revocation_options: RevocationOptions | None = None,
         required_scopes: list[str] | None = None,
@@ -101,13 +108,14 @@ class SQLiteOAuthProvider(OAuthProvider):
         self._db_path = db_path
         self._consent_url = consent_url
         self._signing_key = signing_key
+        self._platform_domain: str = platform_domain
         parsed = urlparse(base_url)
         host_parts = parsed.hostname.split(".") if parsed.hostname else []
-        self._wiki_slug = host_parts[0] if len(host_parts) >= 3 else ""
-        if self._wiki_slug:
-            if not re.fullmatch(r"[a-z0-9-]+", self._wiki_slug):
+        self._default_wiki_slug = host_parts[0] if len(host_parts) >= 3 else ""
+        if self._default_wiki_slug:
+            if not re.fullmatch(r"[a-z0-9-]+", self._default_wiki_slug):
                 raise ValueError(
-                    f"wiki_slug derived from base_url is invalid: {self._wiki_slug!r}. "
+                    f"wiki_slug derived from base_url is invalid: {self._default_wiki_slug!r}. "
                     "Must match [a-z0-9-]+"
                 )
         else:
@@ -121,6 +129,31 @@ class SQLiteOAuthProvider(OAuthProvider):
 
     # ---- helpers ----
 
+    @property
+    def _wiki_slug(self) -> str:  # backward compatibility
+        return self._default_wiki_slug
+
+    def _get_wiki_slug(self) -> str:
+        """Derive wiki slug from current request's Host header.
+
+        Falls back to ``_default_wiki_slug`` (derived from ``base_url`` at
+        init time) when there is no HTTP request context or when the Host
+        header does not contain a 3-part hostname, or when the extracted slug
+        fails validation (to guard against malicious Host headers).
+        """
+        try:
+            request = get_http_request()
+            host = request.headers.get("host", "")
+            hostname = host.split(":")[0]
+            parts = hostname.split(".")
+            if len(parts) >= 3:
+                slug = parts[0]
+                if _SLUG_RE.match(slug):
+                    return slug
+        except RuntimeError:
+            pass
+        return self._default_wiki_slug
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
@@ -133,6 +166,76 @@ class SQLiteOAuthProvider(OAuthProvider):
             conn.executescript(_SCHEMA)
         finally:
             conn.close()
+
+    # ---- Route overrides for dynamic metadata ----
+
+    async def _dynamic_oauth_metadata_handler(self, request: Request) -> JSONResponse:
+        """Return OAuth authorization server metadata using the request Host.
+
+        Overrides the static metadata baked in by ``create_auth_routes`` so
+        that each wiki tenant gets its own issuer/endpoints.  When the Host
+        header contains a 3-part hostname, ``_platform_domain`` is set, and the
+        slug passes validation, the base URL is constructed from the slug.
+        Otherwise falls back to the static ``base_url`` passed at init time.
+        """
+        host = request.headers.get("host", "")
+        hostname = host.split(":")[0]
+        parts = hostname.split(".")
+
+        base_url = str(self.base_url).rstrip("/")
+
+        if len(parts) >= 3 and self._platform_domain:
+            slug = parts[0]
+            if _SLUG_RE.match(slug):
+                base_url = f"https://{slug}.{self._platform_domain}"
+
+        return JSONResponse({
+            "issuer": base_url,
+            "authorization_endpoint": f"{base_url}/authorize",
+            "token_endpoint": f"{base_url}/token",
+            "registration_endpoint": f"{base_url}/register",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_post",
+                "client_secret_basic",
+            ],
+            "code_challenge_methods_supported": ["S256"],
+        })
+
+    def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+        """Return OAuth routes with the static metadata route replaced by a
+        dynamic one that reads the base URL from the request Host header."""
+        from mcp.server.auth.routes import cors_middleware
+
+        routes = super().get_routes(mcp_path=mcp_path)
+
+        dynamic_route = Route(
+            "/.well-known/oauth-authorization-server",
+            endpoint=cors_middleware(
+                self._dynamic_oauth_metadata_handler, ["GET", "OPTIONS"]
+            ),
+            methods=["GET", "OPTIONS"],
+        )
+
+        replaced = []
+        route_was_replaced = False
+        for route in routes:
+            if (
+                isinstance(route, Route)
+                and route.path == "/.well-known/oauth-authorization-server"
+            ):
+                replaced.append(dynamic_route)
+                route_was_replaced = True
+            else:
+                replaced.append(route)
+
+        if not route_was_replaced:
+            logger.warning(
+                "Failed to replace OAuth metadata route — static metadata will be served"
+            )
+
+        return replaced
 
     # ---- OAuthProvider interface ----
 
@@ -219,7 +322,7 @@ class SQLiteOAuthProvider(OAuthProvider):
             "state": params.state or "",
             "scope": " ".join(scopes_list),
             "response_type": "code",
-            "wiki_slug": self._wiki_slug,
+            "wiki_slug": self._get_wiki_slug(),
         }
         if params.resource:
             consent_params["resource"] = params.resource
@@ -273,13 +376,17 @@ class SQLiteOAuthProvider(OAuthProvider):
                 error_description="Approval token client_id mismatch",
             )
 
-        # Verify the token's wiki_slug matches this MCP server's wiki
+        # Verify the token's wiki_slug matches this MCP server's wiki.
+        # Empty server_slug means we can't determine the wiki (e.g., localhost
+        # dev where the Host header has no 3-part hostname), so we skip the
+        # check rather than incorrectly rejecting valid tokens.
+        server_slug = self._get_wiki_slug()
         token_slug = payload.get("wiki_slug", "")
-        if self._wiki_slug and token_slug != self._wiki_slug:
+        if server_slug and token_slug != server_slug:
             logger.warning(
                 "Approval token wiki_slug mismatch: token=%s server=%s",
                 token_slug,
-                self._wiki_slug,
+                server_slug,
             )
             raise AuthorizeError(
                 error="access_denied",
