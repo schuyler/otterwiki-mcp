@@ -37,7 +37,10 @@ logger = logging.getLogger(__name__)
 
 # Expiration defaults
 AUTH_CODE_EXPIRY_SECONDS = 10 * 60  # 10 minutes
-ACCESS_TOKEN_EXPIRY_SECONDS = 60 * 60  # 1 hour
+ACCESS_TOKEN_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
+# Claude.ai does not use refresh tokens — it re-runs the full OAuth consent
+# flow on expiry. Extending from 1 hour to 7 days reduces user-facing
+# re-auth prompts from hourly to weekly.
 REFRESH_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 _SCHEMA = """\
