@@ -473,6 +473,7 @@ def main():
             signing_key=signing_key,
             client_registration_options=ClientRegistrationOptions(enabled=True),
         )
+        oauth_provider._platform_domain = cfg.platform_domain
     elif cfg.platform_domain or cfg.consent_url:
         missing = "CONSENT_URL" if cfg.platform_domain else "PLATFORM_DOMAIN"
         logger.warning(
