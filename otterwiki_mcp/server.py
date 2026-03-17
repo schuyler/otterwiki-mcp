@@ -18,6 +18,7 @@ from otterwiki_mcp.api_client import WikiAPIError, WikiClient, current_host_head
 from otterwiki_mcp.config import get_config
 from otterwiki_mcp.consent import derive_signing_key
 from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
+from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from otterwiki_mcp import formatters
 from otterwiki_mcp import sections
 
@@ -41,8 +42,8 @@ mcp = FastMCP("Otterwiki Research Wiki")
 
 # Initialized in main(); tools reference via module-level variable.
 client: WikiClient
-oauth_provider: SQLiteOAuthProvider
-platform_domain: str = "robot.wtf"
+oauth_provider: SQLiteOAuthProvider | InMemoryOAuthProvider
+platform_domain: str = ""
 
 
 def _set_host_from_request() -> None:
@@ -381,7 +382,13 @@ async def authorize_callback(request: Request) -> Response:
 
     Verifies the approval token, issues an auth code, and redirects
     the OAuth client (e.g. Claude.ai) back to its redirect_uri.
+
+    Only available when SQLiteOAuthProvider is configured (i.e. PLATFORM_DOMAIN
+    and CONSENT_URL are set). Returns 404 in standalone/development mode.
     """
+    if not isinstance(oauth_provider, SQLiteOAuthProvider):
+        return Response("Not available in standalone mode", status_code=404)
+
     params = request.query_params
     approval_token = params.get("approval_token", "")
     if not approval_token:
@@ -450,15 +457,43 @@ def main():
     platform_domain = cfg.platform_domain
     mcp._lifespan = _lifespan
 
-    signing_key = _load_signing_key(cfg.signing_key_path)
-
-    oauth_provider = SQLiteOAuthProvider(
-        cfg.mcp_oauth_db,
-        base_url=cfg.mcp_base_url,
-        consent_url=cfg.consent_url,
-        signing_key=signing_key,
-        client_registration_options=ClientRegistrationOptions(enabled=True),
-    )
+    if cfg.platform_domain and cfg.consent_url:
+        signing_key = _load_signing_key(cfg.signing_key_path)
+        if not signing_key:
+            logger.error(
+                "PLATFORM_DOMAIN and CONSENT_URL are set but signing key could not be loaded "
+                "from %s — aborting startup",
+                cfg.signing_key_path,
+            )
+            raise SystemExit(1)
+        oauth_provider = SQLiteOAuthProvider(
+            cfg.mcp_oauth_db,
+            base_url=cfg.mcp_base_url,
+            consent_url=cfg.consent_url,
+            signing_key=signing_key,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+        )
+    elif cfg.platform_domain or cfg.consent_url:
+        missing = "CONSENT_URL" if cfg.platform_domain else "PLATFORM_DOMAIN"
+        logger.warning(
+            "Incomplete platform config: %s is set but %s is missing — "
+            "falling back to InMemoryOAuthProvider",
+            "PLATFORM_DOMAIN" if cfg.platform_domain else "CONSENT_URL",
+            missing,
+        )
+        oauth_provider = InMemoryOAuthProvider(
+            base_url=cfg.mcp_base_url,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+        )
+    else:
+        logger.info(
+            "PLATFORM_DOMAIN and CONSENT_URL not set — using InMemoryOAuthProvider "
+            "(standalone/development mode)"
+        )
+        oauth_provider = InMemoryOAuthProvider(
+            base_url=cfg.mcp_base_url,
+            client_registration_options=ClientRegistrationOptions(enabled=True),
+        )
     verifiers = []
     if cfg.mcp_auth_token:
         verifiers.append(

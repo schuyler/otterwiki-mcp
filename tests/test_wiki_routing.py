@@ -167,7 +167,7 @@ def test_set_host_custom_platform_domain():
 
 
 def test_config_platform_domain_default():
-    """PLATFORM_DOMAIN defaults to robot.wtf."""
+    """PLATFORM_DOMAIN defaults to empty string when not set."""
     import os
     from otterwiki_mcp.config import Config
 
@@ -178,7 +178,7 @@ def test_config_platform_domain_default():
     }
     with patch.dict(os.environ, env, clear=True):
         cfg = Config()
-    assert cfg.platform_domain == "robot.wtf"
+    assert cfg.platform_domain == ""
 
 
 def test_config_platform_domain_custom():
