@@ -81,9 +81,11 @@ class TestAuthSetup:
         assert verifier.tokens[token]["scopes"] == []
 
     def test_oauth_provider_base_url(self, monkeypatch):
-        """SQLiteOAuthProvider receives MCP_BASE_URL."""
+        """InMemoryOAuthProvider receives MCP_BASE_URL (PLATFORM_DOMAIN not set)."""
+        monkeypatch.delenv("PLATFORM_DOMAIN", raising=False)
+        monkeypatch.delenv("CONSENT_URL", raising=False)
         auth = _run_main(monkeypatch)
-        # SQLiteOAuthProvider stores base_url as AnyHttpUrl
+        # InMemoryOAuthProvider stores base_url as AnyHttpUrl
         assert str(auth.server.base_url) == "http://localhost:8090/"
 
     def test_empty_token_treated_as_absent(self, monkeypatch):
@@ -158,11 +160,15 @@ class TestOAuthProviderSelection:
         assert isinstance(auth, MultiAuth)
         assert isinstance(auth.server, InMemoryOAuthProvider)
 
-    def test_platform_domain_set_uses_sqlite_provider(self, monkeypatch):
-        """When PLATFORM_DOMAIN is set, SQLiteOAuthProvider is used."""
+    def test_platform_domain_set_uses_sqlite_provider(self, monkeypatch, tmp_path):
+        """When PLATFORM_DOMAIN and CONSENT_URL are set and signing key exists, SQLiteOAuthProvider is used."""
+        # Write a minimal PEM file so _load_signing_key succeeds
+        key_file = tmp_path / "signing_key.pem"
+        key_file.write_text("-----BEGIN RSA PRIVATE KEY-----\n" + "x" * 64 + "\n-----END RSA PRIVATE KEY-----\n")
         monkeypatch.setenv("PLATFORM_DOMAIN", "example.com")
         monkeypatch.setenv("CONSENT_URL", "https://example.com/auth/oauth/consent")
-        auth = _run_main(monkeypatch)
+        monkeypatch.setenv("SIGNING_KEY_PATH", str(key_file))
+        auth = _run_main(monkeypatch, tmp_path=tmp_path)
 
         assert isinstance(auth, MultiAuth)
         assert isinstance(auth.server, SQLiteOAuthProvider)
@@ -178,3 +184,17 @@ class TestOAuthProviderSelection:
         monkeypatch.delenv("PLATFORM_DOMAIN", raising=False)
         cfg = Config()
         assert not cfg.platform_domain  # must be None or empty string, not "robot.wtf"
+
+    def test_partial_config_platform_domain_only_uses_in_memory(self, monkeypatch, caplog):
+        """PLATFORM_DOMAIN set but CONSENT_URL missing -> InMemoryOAuthProvider + WARNING logged."""
+        import logging
+
+        monkeypatch.setenv("PLATFORM_DOMAIN", "example.com")
+        monkeypatch.delenv("CONSENT_URL", raising=False)
+
+        with caplog.at_level(logging.WARNING, logger="otterwiki_mcp.server"):
+            auth = _run_main(monkeypatch)
+
+        assert isinstance(auth, MultiAuth)
+        assert isinstance(auth.server, InMemoryOAuthProvider)
+        assert any("CONSENT_URL" in record.message for record in caplog.records)

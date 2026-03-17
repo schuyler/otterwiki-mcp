@@ -49,7 +49,7 @@ All via environment variables:
 
 The server supports two authentication methods:
 
-- **OAuth 2.1** (primary) — Used by Claude.ai. The server acts as its own OAuth authorization server via FastMCP's `InMemoryOAuthProvider`, handling Dynamic Client Registration, PKCE, and token management. OAuth state is in-memory; a server restart requires re-authentication.
+- **OAuth 2.1** (primary) — Used by Claude.ai. The server acts as its own OAuth authorization server, handling Dynamic Client Registration, PKCE, and token management. When both `PLATFORM_DOMAIN` and `CONSENT_URL` are set, `SQLiteOAuthProvider` is used: OAuth state is persisted to SQLite and a custom consent page handles user approval. When either variable is absent, the server falls back to `InMemoryOAuthProvider`: OAuth state is in-memory and a server restart requires re-authentication.
 - **Bearer token** (optional) — Used by Claude Code. Enabled when `MCP_AUTH_TOKEN` is set. Clients send `Authorization: Bearer <token>` in HTTP headers.
 
 ### Connecting from Claude.ai
