@@ -154,6 +154,18 @@ class SQLiteOAuthProvider(OAuthProvider):
             pass
         return self._default_wiki_slug
 
+    def _derive_base_url(self) -> str:
+        """Return the base URL for the current request's wiki tenant.
+
+        Uses ``_get_wiki_slug()`` (which reads the Host header from ASGI
+        context) and ``_platform_domain`` to build the tenant URL when
+        possible; otherwise falls back to the static ``base_url``.
+        """
+        slug = self._get_wiki_slug()
+        if slug and self._platform_domain:
+            return f"https://{slug}.{self._platform_domain}"
+        return str(self.base_url).rstrip("/")
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
@@ -178,16 +190,7 @@ class SQLiteOAuthProvider(OAuthProvider):
         slug passes validation, the base URL is constructed from the slug.
         Otherwise falls back to the static ``base_url`` passed at init time.
         """
-        host = request.headers.get("host", "")
-        hostname = host.split(":")[0]
-        parts = hostname.split(".")
-
-        base_url = str(self.base_url).rstrip("/")
-
-        if len(parts) >= 3 and self._platform_domain:
-            slug = parts[0]
-            if _SLUG_RE.match(slug):
-                base_url = f"https://{slug}.{self._platform_domain}"
+        base_url = self._derive_base_url()
 
         return JSONResponse({
             "issuer": base_url,
@@ -202,6 +205,33 @@ class SQLiteOAuthProvider(OAuthProvider):
             ],
             "code_challenge_methods_supported": ["S256"],
         })
+
+    async def _dynamic_protected_resource_handler(self, request: Request) -> JSONResponse:
+        """Return RFC 9728 protected resource metadata using the request Host.
+
+        Mirrors ``_dynamic_oauth_metadata_handler`` so each wiki tenant
+        advertises the correct resource URI and authorization server.
+        """
+        base_url = self._derive_base_url()
+
+        scopes: list[str] | None = None
+        if (
+            self.client_registration_options is not None
+            and self.client_registration_options.valid_scopes is not None
+        ):
+            scopes = self.client_registration_options.valid_scopes
+        elif self.required_scopes:
+            scopes = self.required_scopes
+
+        metadata: dict = {
+            "resource": f"{base_url}/mcp",
+            "authorization_servers": [base_url],
+            "bearer_methods_supported": ["header"],
+        }
+        if scopes is not None:
+            metadata["scopes_supported"] = scopes
+
+        return JSONResponse(metadata)
 
     def get_routes(self, mcp_path: str | None = None) -> list[Route]:
         """Return OAuth routes with the static metadata route replaced by a
@@ -218,8 +248,18 @@ class SQLiteOAuthProvider(OAuthProvider):
             methods=["GET", "OPTIONS"],
         )
 
+        protected_resource_path = f"/.well-known/oauth-protected-resource{mcp_path or ''}"
+        dynamic_pr_route = Route(
+            protected_resource_path,
+            endpoint=cors_middleware(
+                self._dynamic_protected_resource_handler, ["GET", "OPTIONS"]
+            ),
+            methods=["GET", "OPTIONS"],
+        )
+
         replaced = []
         route_was_replaced = False
+        pr_route_was_replaced = False
         for route in routes:
             if (
                 isinstance(route, Route)
@@ -227,12 +267,23 @@ class SQLiteOAuthProvider(OAuthProvider):
             ):
                 replaced.append(dynamic_route)
                 route_was_replaced = True
+            elif (
+                isinstance(route, Route)
+                and route.path == protected_resource_path
+            ):
+                replaced.append(dynamic_pr_route)
+                pr_route_was_replaced = True
             else:
                 replaced.append(route)
 
         if not route_was_replaced:
             logger.warning(
                 "Failed to replace OAuth metadata route — static metadata will be served"
+            )
+
+        if not pr_route_was_replaced:
+            logger.warning(
+                "Failed to replace protected resource metadata route — static metadata will be served"
             )
 
         return replaced
