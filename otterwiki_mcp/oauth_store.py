@@ -133,7 +133,7 @@ class SQLiteOAuthProvider(OAuthProvider):
     def _wiki_slug(self) -> str:  # backward compatibility
         return self._default_wiki_slug
 
-    def _get_wiki_slug(self) -> str:
+    def _get_wiki_slug(self, request: Request | None = None) -> str:
         """Derive wiki slug from current request's Host header.
 
         Falls back to ``_default_wiki_slug`` (derived from ``base_url`` at
@@ -142,7 +142,8 @@ class SQLiteOAuthProvider(OAuthProvider):
         fails validation (to guard against malicious Host headers).
         """
         try:
-            request = get_http_request()
+            if request is None:
+                request = get_http_request()
             host = request.headers.get("host", "")
             hostname = host.split(":")[0]
             parts = hostname.split(".")
@@ -154,14 +155,14 @@ class SQLiteOAuthProvider(OAuthProvider):
             pass
         return self._default_wiki_slug
 
-    def _derive_base_url(self) -> str:
+    def _derive_base_url(self, request: Request | None = None) -> str:
         """Return the base URL for the current request's wiki tenant.
 
         Uses ``_get_wiki_slug()`` (which reads the Host header from ASGI
         context) and ``_platform_domain`` to build the tenant URL when
         possible; otherwise falls back to the static ``base_url``.
         """
-        slug = self._get_wiki_slug()
+        slug = self._get_wiki_slug(request=request)
         if slug and self._platform_domain:
             return f"https://{slug}.{self._platform_domain}"
         return str(self.base_url).rstrip("/")
@@ -190,7 +191,7 @@ class SQLiteOAuthProvider(OAuthProvider):
         slug passes validation, the base URL is constructed from the slug.
         Otherwise falls back to the static ``base_url`` passed at init time.
         """
-        base_url = self._derive_base_url()
+        base_url = self._derive_base_url(request=request)
 
         return JSONResponse({
             "issuer": base_url,
@@ -212,7 +213,7 @@ class SQLiteOAuthProvider(OAuthProvider):
         Mirrors ``_dynamic_oauth_metadata_handler`` so each wiki tenant
         advertises the correct resource URI and authorization server.
         """
-        base_url = self._derive_base_url()
+        base_url = self._derive_base_url(request=request)
 
         scopes: list[str] | None = None
         if (

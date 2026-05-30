@@ -260,3 +260,42 @@ def format_orphaned_notes(orphans: list[str]) -> str:
         lines.append(f"- {path}")
 
     return "\n".join(lines)
+
+
+def format_attachments(data: dict) -> str:
+    """Format attachment list for the list_attachments tool."""
+    path = data.get("path", "")
+    attachments = data.get("attachments", [])
+    total = data.get("total", 0)
+    lines = [f"Attachments for {path} ({total}):", ""]
+    if not attachments:
+        lines.append("  (no attachments)")
+    for a in attachments:
+        size = a.get("size", 0)
+        mime = a.get("mime_type", "unknown")
+        modified = a.get("last_modified", "")
+        detail = f"{size} bytes, {mime}"
+        if modified:
+            detail += f", modified {modified}"
+        lines.append(f"- {a.get('filename', '?')} ({detail})")
+    return "\n".join(lines)
+
+
+def format_upload_attachment(data: dict) -> str:
+    """Format upload confirmation for the upload_attachment tool."""
+    return f"Uploaded {data.get('filename', '?')} to {data.get('path', '?')} ({data.get('size', 0)} bytes)"
+
+
+def format_download_attachment(data: dict) -> str:
+    """Format download metadata for the download_attachment tool."""
+    lines = [
+        f"Downloaded {data.get('filename', '?')} ({data.get('size', 0)} bytes, {data.get('mime_type', 'unknown')})",
+        f"Content (base64):",
+        data.get("content", ""),
+    ]
+    return "\n".join(lines)
+
+
+def format_delete_attachment(data: dict) -> str:
+    """Format deletion confirmation for the delete_attachment tool."""
+    return f"Deleted attachment {data.get('filename', '?')}"

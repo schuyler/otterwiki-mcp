@@ -1,6 +1,7 @@
 """Async HTTP client wrapping the Otterwiki REST API."""
 
 from contextvars import ContextVar
+from urllib.parse import quote
 
 import httpx
 
@@ -183,6 +184,42 @@ class WikiClient:
         return await self._request(
             "GET", "/api/v1/changelog", params={"limit": limit}
         )
+
+    # --- Attachments ---
+
+    async def list_attachments(self, page_path: str) -> dict:
+        """GET /api/v1/pages/<page_path>/attachments — list files attached to a page."""
+        self._validate_path(page_path)
+        return await self._request("GET", f"/api/v1/pages/{page_path}/attachments")
+
+    async def upload_attachment(
+        self, page_path: str, filename: str, content_b64: str, commit_message: str | None = None
+    ) -> dict:
+        """POST /api/v1/pages/<page_path>/attachments — upload a base64-encoded file to a page."""
+        self._validate_path(page_path)
+        body: dict = {"filename": filename, "content": content_b64}
+        if commit_message:
+            body["commit_message"] = f"[mcp] {commit_message}"
+        return await self._request("POST", f"/api/v1/pages/{page_path}/attachments", json=body)
+
+    async def download_attachment(self, page_path: str, filename: str) -> dict:
+        """GET /api/v1/pages/<page_path>/attachments/<filename> — download an attachment as base64."""
+        self._validate_path(page_path)
+        encoded_filename = quote(filename, safe="")
+        return await self._request("GET", f"/api/v1/pages/{page_path}/attachments/{encoded_filename}")
+
+    async def delete_attachment(
+        self, page_path: str, filename: str, commit_message: str | None = None
+    ) -> dict:
+        """DELETE /api/v1/pages/<page_path>/attachments/<filename> — delete an attachment from a page."""
+        self._validate_path(page_path)
+        encoded_filename = quote(filename, safe="")
+        body: dict = {}
+        if commit_message:
+            body["commit_message"] = f"[mcp] {commit_message}"
+        else:
+            body["commit_message"] = f"[mcp] Delete attachment: {page_path}/{filename}"
+        return await self._request("DELETE", f"/api/v1/pages/{page_path}/attachments/{encoded_filename}", json=body)
 
     async def close(self):
         await self._client.aclose()

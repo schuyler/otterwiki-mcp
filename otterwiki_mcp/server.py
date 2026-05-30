@@ -373,6 +373,82 @@ async def find_orphaned_notes() -> str:
         return f"Could not reach the wiki API: {e}"
 
 
+@mcp.tool()
+async def list_attachments(path: str) -> str:
+    """List files attached to a wiki page. Returns filenames, sizes, and MIME types.
+
+    Args:
+        path: Page path, e.g. "Actors/Iran"
+    """
+    _set_host_from_request()
+    try:
+        data = await client.list_attachments(path)
+        return formatters.format_attachments(data)
+    except WikiAPIError as e:
+        return _handle_api_error(e)
+    except Exception as e:
+        return f"Could not reach the wiki API: {e}"
+
+
+@mcp.tool()
+async def upload_attachment(
+    path: str, filename: str, content: str, commit_message: str = ""
+) -> str:
+    """Upload a file attachment to a wiki page. The file content must be base64-encoded. The page must already exist. Maximum file size is 10MB.
+
+    Args:
+        path: Page path, e.g. "Actors/Iran"
+        filename: Name for the attached file, e.g. "report.pdf"
+        content: Base64-encoded file contents
+        commit_message: Optional commit message.
+    """
+    _set_host_from_request()
+    try:
+        data = await client.upload_attachment(path, filename, content, commit_message or None)
+        return formatters.format_upload_attachment(data)
+    except WikiAPIError as e:
+        return _handle_api_error(e)
+    except Exception as e:
+        return f"Could not reach the wiki API: {e}"
+
+
+@mcp.tool()
+async def download_attachment(path: str, filename: str) -> str:
+    """Download a file attachment from a wiki page. Returns the file contents as base64-encoded text.
+
+    Args:
+        path: Page path, e.g. "Actors/Iran"
+        filename: Name of the attachment to download, e.g. "report.pdf"
+    """
+    _set_host_from_request()
+    try:
+        data = await client.download_attachment(path, filename)
+        return formatters.format_download_attachment(data)
+    except WikiAPIError as e:
+        return _handle_api_error(e)
+    except Exception as e:
+        return f"Could not reach the wiki API: {e}"
+
+
+@mcp.tool()
+async def delete_attachment(path: str, filename: str, commit_message: str = "") -> str:
+    """Delete a file attachment from a wiki page. Permanently deletes -- content can only be recovered through git history. Confirm with the user before calling.
+
+    Args:
+        path: Page path, e.g. "Actors/Iran"
+        filename: Name of the attachment to delete, e.g. "report.pdf"
+        commit_message: Optional commit message.
+    """
+    _set_host_from_request()
+    try:
+        data = await client.delete_attachment(path, filename, commit_message or None)
+        return formatters.format_delete_attachment(data)
+    except WikiAPIError as e:
+        return _handle_api_error(e)
+    except Exception as e:
+        return f"Could not reach the wiki API: {e}"
+
+
 # --- Authorize callback ---
 
 
