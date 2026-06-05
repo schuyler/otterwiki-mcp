@@ -86,7 +86,7 @@ Terminate TLS in front of the MCP server (nginx, Caddy, etc.) so tokens aren't s
 - [FastMCP](https://github.com/jlowin/fastmcp) >= 2.0
 - [httpx](https://www.python-httpx.org/) >= 0.27
 
-Requires the [otterwiki-api](../otterwiki-api) plugin installed in the Otterwiki instance. The [otterwiki-semantic-search](../otterwiki-semantic-search) plugin is needed for the `semantic_search` tool.
+Requires the [otterwiki-api](https://github.com/schuyler/otterwiki-api) plugin installed in the Otterwiki instance. The [otterwiki-semantic-search](https://github.com/schuyler/otterwiki-semantic-search) plugin is needed for the `semantic_search` tool.
 
 ## Development
 
