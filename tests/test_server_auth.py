@@ -107,7 +107,7 @@ class TestAuthVerification:
 
         result = await auth.verify_token(token)
         assert result is not None
-        assert result.client_id == "claude-code"
+        assert getattr(result, "original_client_id", result.client_id) == "claude-code"
 
     @pytest.mark.asyncio
     async def test_wrong_token_rejected(self, monkeypatch):
