@@ -23,7 +23,9 @@ from mcp.server.auth.provider import (
     TokenError,
     construct_redirect_uri,
 )
+from mcp.server.auth.routes import build_resource_metadata_url
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from pydantic import AnyHttpUrl
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -759,3 +761,40 @@ class SQLiteOAuthProvider(OAuthProvider):
 
         for tok in tokens_to_delete:
             conn.execute("DELETE FROM oauth_tokens WHERE token = ?", (tok,))
+
+
+def _metadata_url(base_url: str, path: str) -> bytes:
+    return str(
+        build_resource_metadata_url(AnyHttpUrl(f"{base_url.rstrip('/')}{path}"))
+    ).encode()
+
+
+class PerHostChallengeMiddleware:
+    """Rewrites the 401 challenge's resource_metadata to the request's tenant.
+
+    fastmcp bakes the metadata URL into RequireAuthMiddleware at startup from
+    base_url; the metadata routes derive it per request, and clients that follow
+    the challenge strictly reject the mismatch.
+    """
+
+    def __init__(self, app, provider: SQLiteOAuthProvider):
+        self.app = app
+        self.provider = provider
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # Must match fastmcp's build-time URL exactly: base_url + the MCP endpoint path.
+        static = _metadata_url(str(self.provider.base_url), scope["path"])
+        dynamic = _metadata_url(self.provider._derive_base_url(Request(scope)), scope["path"])
+
+        async def send_with_tenant_challenge(message):
+            if message["type"] == "http.response.start":
+                message["headers"] = [
+                    (k, v.replace(static, dynamic) if k == b"www-authenticate" else v)
+                    for k, v in message["headers"]
+                ]
+            await send(message)
+
+        await self.app(scope, receive, send_with_tenant_challenge)

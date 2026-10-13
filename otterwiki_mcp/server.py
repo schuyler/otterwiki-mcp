@@ -9,6 +9,7 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import MultiAuth, StaticTokenVerifier
 from mcp.server.auth.provider import AuthorizeError
 from mcp.server.auth.settings import ClientRegistrationOptions
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
@@ -17,7 +18,7 @@ from fastmcp.server.dependencies import get_http_request
 from otterwiki_mcp.api_client import WikiAPIError, WikiClient, current_host_header
 from otterwiki_mcp.config import get_config
 from otterwiki_mcp.consent import derive_signing_key
-from otterwiki_mcp.oauth_store import SQLiteOAuthProvider
+from otterwiki_mcp.oauth_store import PerHostChallengeMiddleware, SQLiteOAuthProvider
 from otterwiki_mcp.platform_auth import PlatformTokenVerifier, platform_db_available
 from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from otterwiki_mcp import formatters
@@ -534,6 +535,7 @@ def main():
     platform_domain = cfg.platform_domain
     mcp._lifespan = _lifespan
 
+    middleware = []
     if cfg.platform_domain and cfg.consent_url:
         signing_key = _load_signing_key(cfg.signing_key_path)
         if not signing_key:
@@ -551,6 +553,7 @@ def main():
             platform_domain=cfg.platform_domain,
             client_registration_options=ClientRegistrationOptions(enabled=True),
         )
+        middleware.append(Middleware(PerHostChallengeMiddleware, provider=oauth_provider))
     elif cfg.platform_domain or cfg.consent_url:
         missing = "CONSENT_URL" if cfg.platform_domain else "PLATFORM_DOMAIN"
         logger.warning(
@@ -594,7 +597,13 @@ def main():
             )
     mcp.auth = MultiAuth(server=oauth_provider, verifiers=verifiers)
 
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=cfg.mcp_port, stateless_http=True)
+    mcp.run(
+        transport="streamable-http",
+        host="0.0.0.0",
+        port=cfg.mcp_port,
+        stateless_http=True,
+        middleware=middleware,
+    )
 
 
 if __name__ == "__main__":
