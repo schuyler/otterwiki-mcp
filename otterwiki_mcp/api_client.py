@@ -28,6 +28,9 @@ class WikiClient:
             base_url=base_url,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=30.0,
+            # Backstop: if the wiki canonicalises a path with a redirect, follow it
+            # rather than surfacing the 302 as an error.
+            follow_redirects=True,
         )
 
     @staticmethod
