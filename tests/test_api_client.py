@@ -323,3 +323,18 @@ async def test_rename_page_sends_mcp_prefix(mock_api, wiki_client):
     req_body = route.calls[0].request.content
     assert b"[mcp] Rename page" in req_body
     assert b"New/Page" in req_body
+
+
+@pytest.mark.asyncio
+async def test_follows_redirects(mock_api, wiki_client):
+    """A redirect (e.g. spaced path -> underscored path) is followed, not raised."""
+    mock_api.get("/api/v1/pages/Deploy Setup Checklist").mock(
+        return_value=httpx.Response(
+            302, headers={"Location": "/api/v1/pages/Deploy_Setup_Checklist"}
+        )
+    )
+    mock_api.get("/api/v1/pages/Deploy_Setup_Checklist").mock(
+        return_value=httpx.Response(200, json={"name": "Deploy Setup Checklist"})
+    )
+    result = await wiki_client.get_page("Deploy Setup Checklist")
+    assert result["name"] == "Deploy Setup Checklist"
